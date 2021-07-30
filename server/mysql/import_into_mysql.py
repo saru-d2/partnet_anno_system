@@ -10,8 +10,10 @@ parser.add_argument('mysql_user', type=str, help='mysql user')
 parser.add_argument('mysql_password', type=str, help='mysql password')
 parser.add_argument('--database', type=str, default='partnet_anno_system', help='mysql database name [Default: partnet_anno_system]')
 args = parser.parse_args()
-
+# python mysql/import_into_mysql.py localhost root ******
 in_dir = '../storage/data/'
+
+print(args)
 
 mydb = mysql.connector.connect(
     host=args.mysql_host,
