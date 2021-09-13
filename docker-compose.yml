@@ -1,0 +1,48 @@
+version: '3.4'
+
+services:
+
+  mysqldb:
+    image: mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: p@ssw0rd1
+      MYSQL_DATABASE: partnet_anno_sys
+    healthcheck:
+      test: "/usr/bin/mysql --user=root --password=$MYSQL_ROOT_PASSWORD --execute \"SHOW DATABASES;\""
+      interval: 2s
+      timeout: 20s
+      retries: 10
+    ports:
+      - "3306:3306"
+      - "33060:33060"
+    expose: 
+      - 33060
+      - 3306
+  partnetannosystem:
+    image: partnetannosystem
+    restart: on-failure
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile
+    depends_on: 
+      mysqldb:
+        condition: service_healthy
+    links: 
+      - mysqldb
+    environment:
+      NODE_ENV: develop
+    ports:
+      - 8080:8080
+      - 9090:9090
+    # volumes:
+    #   - /data2/diwakar/parnet_anno_sys/server/routes:/usr/src/app/server/routes/
+    #   - /data2/diwakar/parnet_anno_sys/server/public:/usr/src/app/server/public/
+    #   - /data2/diwakar/parnet_anno_sys/server/views:/usr/src/app/server/views/
+    #   - /data2/diwakar/parnet_anno_sys/server/python:/usr/src/app/server/python/
+    #   - /data2/diwakar/parnet_anno_sys/client/js:/usr/src/app/client/js/
+    #   - /data2/diwakar/parnet_anno_sys/client/config:/usr/src/app/client/config/      
+
+# USE https://docs.docker.com/language/python/develop/
+
+# REFER - https://stackoverflow.com/questions/42567475/docker-compose-check-if-mysql-connection-is-ready

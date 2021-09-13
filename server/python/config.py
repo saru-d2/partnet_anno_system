@@ -1,7 +1,8 @@
 import os
 
 # FILL IN THIS!
-file_storage_base_dir = '/Users/shubham1.bhardwaj/Documents/jio_machine_inspection/partnet_anno_system/storage'
+# TODO: Fix path to sql volume mounted
+file_storage_base_dir = '/usr/app/partnet_anno_system/storage'
 
 # DO NOT CHANGE!
 anno_dir = os.path.join(file_storage_base_dir, 'annotations')

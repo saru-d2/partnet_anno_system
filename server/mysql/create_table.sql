@@ -1,3 +1,4 @@
+CREATE DATABASE partnet_anno_system;
 USE partnet_anno_system;
 
 CREATE TABLE Annotation

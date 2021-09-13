@@ -2,12 +2,12 @@ var server = exports;
 
 // SET UP HERE!
 server.HOST = 'localhost';
-server.PORT = '5000';
+server.PORT = '8080';
 server.DB_HOST = "localhost";
 server.DB_USER = "root";
 server.DB_PASSWORD = "";
 server.DB_NAME = "partnet_anno_system";
-server.CODE_DIR = "/Users/shubham1.bhardwaj/Documents/jio_machine_inspection/partnet_anno_system/server"
+server.CODE_DIR = "/usr/app/partnet_anno_system/"
 
 // DO NOT CHANGE!
 server.DIR = server.CODE_DIR + "/storage/";

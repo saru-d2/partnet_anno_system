@@ -5,6 +5,7 @@
   "dependencies": {
     "babel-core": "^6.26.0",
     "babelify": "^8.0.0",
+    "bootstrap-treeview": "^1.2.0",
     "browserify-fs": "^1.0.0",
     "chosen-js": "^1.8.3",
     "datatables.net": "^1.10.16",
@@ -16,6 +17,7 @@
     "glslify": "^6.1.1",
     "jquery": "^3.3.1",
     "jquery-bar-rating": "^1.2.2",
+    "node": "^16.6.0",
     "node-dijkstra": "^2.5.0",
     "obj-mtl-loader": "^0.0.5",
     "please-wait": "0.0.5",
@@ -27,6 +29,5 @@
     "validator": "^9.4.1",
     "vis": "^4.21.0"
   },
-  "devDependencies": {},
   "author": ""
 }

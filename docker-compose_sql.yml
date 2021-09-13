@@ -1,0 +1,11 @@
+version: '3.4'
+
+services:
+  mysqldb:
+    image: mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: p@ssw0rd1
+      MYSQL_DATABASE: partnet_anno_sys
+    ports:
+      - "3306:3307"
