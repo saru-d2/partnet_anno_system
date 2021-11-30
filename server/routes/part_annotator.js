@@ -18,7 +18,9 @@ router.post('/', function (req, res) {
     }
 
     var anno_id = req.body.anno_id;
-
+    console.log({anno_id: anno_id,
+        load_parent_anno: load_parent_anno, allow_edit: allow_edit
+    });
     res.render('part_annotator', {anno_id: anno_id,
         load_parent_anno: load_parent_anno, allow_edit: allow_edit
     });

@@ -6,7 +6,7 @@ window.post = function(path, params, method) {
     var form = document.createElement("form");
     form.setAttribute("method", method);
     form.setAttribute("action", path);
-    form.setAttribute("target", "_blank");
+    // form.setAttribute("target", "_blank");
 
     for (var key in params) {
         if (params.hasOwnProperty(key)) {
@@ -50,7 +50,7 @@ window.load_cat_names = function() {
 
     var keys = ['Bag', 'Bed', 'Bottle', 'Bowl', 'Chair', 'Clock', 'Dishwasher', 'Display', 'Door', 'Earphone', 
         'Faucet', 'Hat', 'Keyboard', 'Knife', 'Lamp', 'Laptop', 'Microwave', 'Mug', 'Refrigerator', 'Scissors', 
-        'StorageFurniture', 'Table', 'TrashCan', 'Vase'];
+        'StorageFurniture', 'Table', 'Tower', 'TrashCan', 'Vase'];
 
     keys.forEach(function(item) {
         var option = document.createElement('option');
@@ -89,7 +89,7 @@ window.gen_visu_list = function(username) {
     table.innerHTML = '';
 
     $.getJSON('annotation/get_all_annotations/'+username+'/'+cat_name, function(data) {
-        console.log('hahaha');
+        // console.log('hahaha');
         for (let item of data.anno_list) {
             var anno_id = item.anno_id;
             var model_id = item.model_id;
@@ -130,6 +130,8 @@ window.view_model = function(anno_id) {
 };
 
 window.modify_model = function(anno_id) {
+    console.log(anno_id);
+    console.log()
     post('/part_annotator', {anno_id: anno_id, allow_edit: true, load_parent_anno: true});
 };
 

@@ -1,10 +1,19 @@
 var THREE = require('three');
 var be_config = require('./config/backend.js');
 var ObjMtlLoader = require("obj-mtl-loader");
-var OrbitControls = require('three-orbit-controls')(THREE);
+// var OrbitControls = require('three-orbit-controls')(THREE);
+var {OrbitControls} = require('./js/OrbitControls.js');
+// import { OrbitControls } from "./js/OrbitControls.js";
+// import { OrbitControlsGizmo } from "./js/OrbitControlsGizmo.js";
+//var {OrbitControlsGizmo} = require('./js/OrbitControlsGizmo.js');
 var request = require('request');
 var FormData = require('form-data');
 var Timer = require('easytimer.js');
+var CameraControls = require('camera-controls');
+const { SSL_OP_NO_COMPRESSION } = require('constants');
+CameraControls.install( { THREE: THREE } );
+// import CameraControls from 'camera-controls';
+
 
 var scope;
 
@@ -48,11 +57,18 @@ var PartAnnotator = function(params) {
     }
 
     // setup the camera, scene, render, lights
-    this.camera = new THREE.PerspectiveCamera( 75, this.CANVAS_WIDTH / this.CANVAS_HEIGHT, 0.1, 1000 );
-    this.camera.position.set(-1, 1, -1);
+    this.camera = new THREE.PerspectiveCamera( 60, this.CANVAS_WIDTH / this.CANVAS_HEIGHT, 0.001, 1000);
+    // this.camera.position.set(-1, 0, -1);
+    this.camera.position.set(0, 0.1, 0.12);
     this.camera.lookAt(new THREE.Vector3(0, 0, 0));
+    
+
+    // this.controls.update();
 
     this.scene = new THREE.Scene();
+    this.obj_bbox = new THREE.Box3();
+    const axesHelper = new THREE.AxesHelper( 5 );
+    this.scene.add( axesHelper );
 
     this.renderer = new THREE.WebGLRenderer({
         preserveDrawingBuffer: true
@@ -83,26 +99,37 @@ var PartAnnotator = function(params) {
     this.scene.add(this.light4);
 
     this.wireframe_switch = false;
-
+    this.clock = new THREE.Clock();
+    this.controls = new CameraControls( this.camera, this.renderer.domElement);
+    this.controls.infinityDolly = true;
     // setup controls
-    this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-    this.controls.minDistance = 0;
-    this.controls.maxDistance = 15;
-    this.controls.enablePan = true;
-    this.controls.maxPolarAngle = Math.PI;
-    this.controls.addEventListener('change', this.render);
-    this.controls.enableKeys = false;
+    // this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+    // this.controls.minDistance = 0;
+    // this.controls.maxDistance = 15;
+    // this.controls.enablePan = true;
+    // this.controls.enableZoom = true;
+    // this.controls.maxPolarAngle = Math.PI;
+    // this.controls.addEventListener('change', this.render);
+    // this.controls.enableKeys = false;
+    // this.controlsGizmo = new  OrbitControlsGizmo(this.controls, { size:  100, padding:  8 });
+    // document.body.appendChild(this.controlsGizmo.domElement);
 
+   
     // listen to UI interactions
     window.addEventListener( 'resize', this.on_window_resize, false );
     this.renderer.domElement.addEventListener('mousemove',
         function() {
+           
+
             scope.mouse_x = ( ( event.clientX - scope.renderer.domElement.offsetLeft ) / scope.renderer.domElement.clientWidth ) * 2 - 1;
             scope.mouse_y = - ( ( event.clientY - scope.renderer.domElement.offsetTop ) / scope.renderer.domElement.clientHeight ) * 2 + 1;
-
+            // add your condition here v-view state and call your functin with these argmuments.
             if (scope.threed_ui_state === 'remesh_cut') {
                 scope.part_cut_mouse_hoover();
             }
+            // else if (scope.threed_ui_state === 'view') {
+            //     scope.zoom_camera_to_point();
+            // }
         });
 
     // raycaster and mouse interactions
@@ -458,9 +485,21 @@ PartAnnotator.prototype.process_key_press = function(event) {
                     }
             }
 
+        }else if(event.keyCode == 86){
+            // v/V --> view by selecting point
+            scope.zoom_camera_to_point();
+            // switch(scope.threed_ui_state) {
+            //     case "idle":
+            //     case "zoom_to_point":
+            //         scope.zoom_camera_to_point();
+            // }
         }
-    }
+
+        }
+    
 };
+
+
 
 PartAnnotator.prototype.start = function () {
 
@@ -592,7 +631,44 @@ PartAnnotator.prototype.start = function () {
 
 // render
 PartAnnotator.prototype.render = function () {
-    scope.renderer.render( scope.scene, scope.camera );
+    //requestAnimationFrame( scope.render );//hulala
+    const delta = scope.clock.getDelta();
+    const hasControlsUpdated = scope.controls.update( delta );
+    requestAnimationFrame(scope.render);
+    // scope.renderer.render( scope.scene, scope.camera );//just remove this comment
+    if ( hasControlsUpdated ) {
+		scope.renderer.render( scope.scene, scope.camera );
+        // var selected_mesh;
+        
+        // if(scope.selected_part_objs.length !== 0){
+        //     for (let obj of scope.selected_part_objs){
+        //         if(obj.type === "Mesh"){
+        //             //console.log("iam in selected");
+        //             var selected_mesh = obj;
+        //             break;
+        //         }
+        //     }
+            
+            
+        // }
+        // if(selected_mesh===undefined){
+        //     //console.log("iam not in selected");
+        //     for (let obj of scope.scene.children) {
+        //         if(obj.type === "Mesh"){
+        //             var selected_mesh = obj;
+        //             break
+        //         }
+        //     }
+        //     // var selected_mesh = scope.scene.children[0];
+        // }
+        // if(selected_mesh!==undefined){
+        //     scope.obj_bbox.copy( selected_mesh.geometry.boundingBox ).applyMatrix4( selected_mesh.matrixWorld );
+        //     //console.log("bbox: ", scope.obj_bbox);
+        // }
+        
+
+	}
+    // scope.controls.update();
 };
 
 
@@ -645,6 +721,7 @@ PartAnnotator.prototype.show_instruction = function() {
     instr += 'C/c --> Perform part cutting\n';
     instr += 'U/u --> Undo the last cut / Exit the cut selection stage\n';
     instr += 'B/b --> Submit the part cutting\n';
+    instr += 'V/v --> Zoom Camera to selected point on mesh\n';
 
     alert('Instructions:'+instr);
 };
@@ -780,6 +857,7 @@ PartAnnotator.prototype.threed_setup = function() {
 PartAnnotator.prototype.load_obj = function (part_type, part_id) {
 
     var file_path = be_config.remoteHost+':'+be_config.remotePort;
+    console.log("$$$$$$$$$$ ", part_type, part_id);
 
     if (part_type === 'original') {
         file_path += be_config.get_original_part + '/' + scope.model_cat + '/' +
@@ -848,7 +926,15 @@ PartAnnotator.prototype.load_obj = function (part_type, part_id) {
         console.log('vertex number: '+mesh.geometry.vertices.length);
         console.log('face number: '+mesh.geometry.faces.length);
 
+        
+        mesh.geometry.computeBoundingBox();
+        scope.obj_bbox.copy( mesh.geometry.boundingBox ).applyMatrix4( mesh.matrixWorld );
+
+        scope.controls.setOrbitPoint((scope.obj_bbox.min.x+scope.obj_bbox.max.x)/2, 
+        (scope.obj_bbox.min.y+scope.obj_bbox.max.y)/2, (scope.obj_bbox.min.z+scope.obj_bbox.max.z)/2, false);
+
         scope.scene.add(mesh);
+
 
         if (part_type === 'original' || part_type === 'new') {
 
@@ -870,7 +956,43 @@ PartAnnotator.prototype.load_obj = function (part_type, part_id) {
         ++ scope.current_num_obj_loaded;
     });
 };
+// -----------------------------------------------------------
+//               MODULE: Camera Utils: Part Lookup
+// -----------------------------------------------------------
+PartAnnotator.prototype.zoom_camera_to_point = function(){
+    var raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(new THREE.Vector2(scope.mouse_x, scope.mouse_y), scope.camera);
+    var scene_objs = [];
+    scope.scene.traverse( function( object ) {
 
+        if ( object.isMesh ) scene_objs.push(object);
+    
+    } );
+    console.log(scope.mouse_x, scope.mouse_y);
+    console.log(scene_objs);
+    var intersects = raycaster.intersectObjects(scene_objs);
+    var intersect_id = 0;
+    while (intersect_id < intersects.length) {
+        var point = intersects[intersect_id].point;
+        var under_clipping = (point.x + scope.plane_clipping_x >= 0) &&
+            (-point.y + scope.plane_clipping_y >= 0) &&
+            (point.z + scope.plane_clipping_z >= 0);
+        if (intersects[intersect_id].object instanceof THREE.Mesh && under_clipping) {
+            break;
+        }
+        ++intersect_id;
+    }
+    if(intersects.length > 0){
+        var pnt = intersects[0].point;
+        var cam_pos = scope.camera.position;
+        var distance = Math.sqrt((cam_pos.x-pnt.x)**2 + (cam_pos.y-pnt.y)**2 + (cam_pos.z-pnt.z)**2);
+        console.log("distance: ", distance); 
+        scope.controls.dollyTo(distance, true);
+    }
+    
+    //scope.controls.setPosition(pnt.x, pnt.y, pnt.z, );
+    console.log("num intersections: ", intersects.length);
+};
 
 // -----------------------------------------------------------
 //               MODULE: 3D UI: Part Select
@@ -964,7 +1086,16 @@ PartAnnotator.prototype.remesh_setup = function() {
     // compute the ratio between the bbox of the part and the bbox for the entire shape
     scope.radius_multiplier = null;
 };
-
+function minValue(arr) {
+    let min = arr[0];
+  
+    for (let val of arr) {
+      if (val < min) {
+        min = val;
+      }
+    }
+    return min;
+  }
 // init for the remeshed part
 PartAnnotator.prototype.remesh_part_init = function(mesh) {
     scope.cut_edge_set = null;
@@ -989,17 +1120,34 @@ PartAnnotator.prototype.remesh_part_init = function(mesh) {
     var part_x_center = (bbox.max.x + bbox.min.x) / 2;
     var part_y_center = (bbox.max.y + bbox.min.y) / 2;
     var part_z_center = (bbox.max.z + bbox.min.z) / 2;
-
+    console.log("Part information:", "part_x_len:", part_x_len);
+    console.log("part_y_len:", part_y_len, "part_z_len:", part_z_len);
     mesh.center_offset = new THREE.Vector3(-part_x_center, -part_y_center, -part_z_center);
 
     var shape_x_len = scope.folderGlobal.__controllers[0].__max - scope.folderGlobal.__controllers[0].__min;
     var shape_y_len = scope.folderGlobal.__controllers[1].__max - scope.folderGlobal.__controllers[1].__min;
     var shape_z_len = scope.folderGlobal.__controllers[2].__max - scope.folderGlobal.__controllers[2].__min;
+    console.log("Shape information:", "shape_x_len:", shape_x_len);
+    console.log("shape_y_len:", shape_y_len, "shape_z_len:", shape_z_len);
 
     var radius_ratio = 0;
-    if (part_x_len / shape_x_len > radius_ratio) radius_ratio = part_x_len / shape_x_len;
-    if (part_y_len / shape_y_len > radius_ratio) radius_ratio = part_y_len / shape_y_len;
-    if (part_z_len / shape_z_len > radius_ratio) radius_ratio = part_z_len / shape_z_len;
+    smalled_radius_ratio = [];
+    // if (part_x_len / shape_x_len > radius_ratio) radius_ratio = part_x_len / shape_x_len;
+    // if (part_y_len / shape_y_len > radius_ratio) radius_ratio = part_y_len / shape_y_len;
+    // if (part_z_len / shape_z_len > radius_ratio) radius_ratio = part_z_len / shape_z_len;
+    if (part_x_len / shape_x_len > radius_ratio) smalled_radius_ratio.push(part_x_len / shape_x_len);
+    if (part_y_len / shape_y_len > radius_ratio) smalled_radius_ratio.push(part_y_len / shape_y_len);
+    if (part_z_len / shape_z_len > radius_ratio) smalled_radius_ratio.push(part_z_len / shape_z_len);
+    if (smalled_radius_ratio.length > 1){
+        radius_ratio = minValue(smalled_radius_ratio)/15;
+    } 
+        
+    if (isNaN(radius_ratio)){
+        radius_ratio = 0;
+    }
+    console.log("part_x_len / shape_x_len: ", part_x_len / shape_x_len);
+    console.log("part_y_len / shape_y_len:", part_y_len / shape_y_len);
+    console.log("part_z_len / shape_z_len:", part_z_len / shape_z_len);
     scope.radius_multiplier = radius_ratio;
 
     scope.scene.children.forEach(function (child) {
@@ -1655,7 +1803,9 @@ PartAnnotator.prototype.dj_mesh_by_vertex = function(source, destination) {
 PartAnnotator.prototype.render_single_point =  function(vertex) {
     var geom = scope.current_remesh_obj.geometry;
     console.log('[Render Point]: '+geom.vertices[vertex].x+', '+geom.vertices[vertex].y+', '+geom.vertices[vertex].z);
-    var geometry = new THREE.SphereGeometry( scope.segment_sphere_radius*scope.radius_multiplier, 32, 32 );
+    // var geometry = new THREE.SphereGeometry( scope.segment_sphere_radius*scope.radius_multiplier, 32, 32 );
+    var geometry = new THREE.SphereGeometry(scope.segment_sphere_radius*scope.radius_multiplier, 32, 32 );
+    console.log("Radius Multiplier:: ", scope.radius_multiplier);
     geometry.translate(geom.vertices[vertex].x, geom.vertices[vertex].y, geom.vertices[vertex].z);
     var material = new THREE.MeshPhongMaterial( {color: scope.color_segment_highlight} );
     var sphere = new THREE.Mesh( geometry, material );
@@ -1809,7 +1959,9 @@ PartAnnotator.prototype.process_part_cut = function() {
 
     scope.threed_ui_state = 'remesh_cut';
 };
+// PartAnnotator.prototype.change_camera_aspect_on_resize = function(){
 
+// };
 // deal with mouse hoover
 PartAnnotator.prototype.part_cut_mouse_hoover = function () {
     var raycaster = new THREE.Raycaster();

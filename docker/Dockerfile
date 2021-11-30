@@ -95,10 +95,17 @@ RUN npm install bootstrap-treeview
 RUN npm --prefix=./client install --build-from-source
 
 # RUN mysql -u root -p < mysql/create_table.sql
-RUN python3 -m pip install mysql-connector-python
+RUN python3 -m pip install mysql-connector-python numpy geometry-utils
+RUN npm install nodemon -g
+RUN apt-get update && apt-get install lsof cmake
+RUN git clone --recursive -j$(nproc) git://github.com/hjwdzh/Manifold \
+  && cd Manifold && mkdir build \
+  && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release\
+  && make && cd ../../
+
 # ENTRYPOINT [ "python3", "./server/mysql/import_into_mysql.py", "localhost", "root", "p@ssw0rd1", "&&","npm", "start","--prefix","./server" ]
 # RUN python3 ./server/mysql/import_into_mysql.py localhost root p@ssw0rd1
 # CMD [ "npm", "start", "--prefix", "./server" ]
 EXPOSE 8080
-# ENTRYPOINT [ "/bin/sh", "-c", "python3 ./server/mysql/import_into_mysql.py mysqldb root p@ssw0rd1 && npm start --prefix ./server"]
+ENTRYPOINT [ "/bin/sh", "-c", "python3 ./server/mysql/import_into_mysql.py mysqldb root p@ssw0rd1 && npm start --prefix ./server"]
 

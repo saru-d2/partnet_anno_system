@@ -12,8 +12,8 @@ var THREE = require('three');
 router.get('/:code', function (req, res, next) {
     console.log('[ GET request from /remeshing ] with code: ' + req.params.code);
 
-    cmd.get(
-        'python ' + server.CODE_DIR + '/server/python/process_remesh.py ' + req.params.code,
+    cmd.run(
+        'python3 ' + server.CODE_DIR + 'server/python/process_remesh.py ' + req.params.code,
         function(err, data, stderr) {
             console.log(err);
             res.status(200);

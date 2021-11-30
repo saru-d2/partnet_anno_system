@@ -2,7 +2,7 @@ var be_config = exports;
 
 // Host and Port Information (SET UP HERE!)
 be_config.remoteHost = 'http://localhost';
-be_config.remotePort = '9090';
+be_config.remotePort = '8080';
 
 // get annotation info (Don't Change!)
 be_config.get_anno_info = '/annotation/get_info';

@@ -8,7 +8,7 @@ var fs = require('fs'),
 
 var multiparty = require('multiparty');
 
-var cmd = require('node-cmd');  // TODO node-cmd
+var cmd = require('node-cmd');
 var THREE = require('three');
 
 router.post('/:anno_id-:part_type-:part_id', function (req, res, next) {
@@ -46,8 +46,8 @@ router.post('/:anno_id-:part_type-:part_id', function (req, res, next) {
                     }
                 });
 
-            cmd.get(
-                'python ' + server.CODE_DIR + '/server/python/get_remesh_cut_objs.py ' + out_fn,
+            cmd.run(
+                'python3 ' + server.CODE_DIR + 'server/python/get_remesh_cut_objs.py ' + out_fn,
                 function(err, data, stderr) {
                     console.log(err);
                     res.status(200);

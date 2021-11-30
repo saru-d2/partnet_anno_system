@@ -4,7 +4,7 @@ import sys
 import os
 from subprocess import call
 from config import *
-
+import pdb
 usage = 'process_remesh.py [model-cat]_[model-id]_[list-of-parts]'
 
 def load_obj(fn):
@@ -47,7 +47,8 @@ remesh_part_dir = os.path.join(anno_dir, anno_id, remesh_part_dir)
 new_part_dir = os.path.join(anno_dir, anno_id, new_part_dir)
 
 if not os.path.exists(remesh_part_dir):
-    os.mkdir(remesh_part_dir)
+    os.makedirs(remesh_part_dir)
+    # os.mkdir(remesh_part_dir)
 
 # get the output part id
 output_partid = -1
@@ -58,8 +59,11 @@ output_partid += 1
 
 all_verts = []; all_faces = []; num_vert = 0; src_part_list = [];
 for input_partid in input_partid_list:
-    mesh_type = input_partid.split('-')[0]
-    mesh_id = input_partid.split('-')[1]
+
+    items = input_partid.split('-')
+    if len(items) < 2:
+        continue
+    mesh_type, mesh_id = items
 
     if mesh_type == 'original':
         cur_obj_fn = os.path.join(original_part_dir, mesh_id+'.obj')
@@ -84,6 +88,6 @@ out_json = remesh_out_fn.replace('.obj', '.src.json')
 with open(out_json, 'w') as fout:
     json.dump(src_part_list, fout)
 
-call('model_fixer %s %s 5000 >> /dev/null' % (out_fn, remesh_out_fn), shell=True)
-
-print output_partid
+# call('/usr/src/app/Manifold/build/manifold %s %s 150000 >> /dev/null' % (out_fn, remesh_out_fn), shell=True)
+os.system(f"cp {out_fn} {remesh_out_fn}")
+print(output_partid)

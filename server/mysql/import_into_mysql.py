@@ -28,6 +28,8 @@ assert mydb.is_connected()
 mycursor = mydb.cursor()
 mycursor.execute("SHOW DATABASES")
 dblist = [db[0] for db in mycursor]
+
+# mycursor.execute("DROP DATABASE partnet_anno_system;")
 # pdb.set_trace()
 if 'partnet_anno_system' not in dblist:
     with open('/usr/src/app/server/mysql/create_table.sql', 'r') as f:

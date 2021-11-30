@@ -19,7 +19,8 @@ new_part_dir = os.path.join(anno_dir, anno_id, new_part_dir)
 
 cur_output_dir = os.path.join(download_dir, anno_id+'_'+version_id)
 if not os.path.exists(cur_output_dir):
-    os.mkdir(cur_output_dir)
+    os.makedirs(cur_output_dir)
+    # os.mkdir(cur_output_dir)
 
 # calculate total time
 tot_time = 0
@@ -58,7 +59,7 @@ def download_obj(fn):
     elif x == 'new':
         src_fn = os.path.join(new_part_dir, y+'.obj')
     else:
-        print 'ERROR. Unknown mesh type: ', x
+        print('ERROR. Unknown mesh type: ', x)
     
     cmd = 'cp %s %s' % (src_fn, os.path.join(output_obj_dir, fn+'.obj'))
     call(cmd, shell=True)
@@ -92,4 +93,4 @@ with open(os.path.join(cur_output_dir, 'result.json'), 'w') as fout:
 cmd = 'cd %s && zip -r %s.zip %s' % (download_dir, anno_id+'_'+version_id, anno_id+'_'+version_id)
 call(cmd, shell=True)
 
-print 'Done.'
+print('Done.')

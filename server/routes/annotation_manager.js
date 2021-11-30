@@ -8,7 +8,7 @@ var server = require('../config/server.js');
 
 var sleep = require('sleep');
 
-const mysql = require('mysql');
+const mysql = require('mysql2');
 
 const pool = mysql.createPool({
     host: server.DB_HOST,

@@ -1,0 +1,27 @@
+{
+    "root": "Tower",
+    "content": [
+      {
+        "name": "Tower",
+        "label": "Jio Cell Tower",
+        "gloss": "Cell Tower with multiple atennas",
+        "parts": [
+          "Antenna",
+          "Base"
+        ]
+      },
+      {
+        "name": "Antenna",
+        "label": "Antenna",
+        "gloss": "antenna of a tower"
+      },
+      
+      {
+        "name": "Base",
+        "label": "Base of tower",
+        "gloss": "base of tower"
+      }
+     
+    ]
+  }
+  

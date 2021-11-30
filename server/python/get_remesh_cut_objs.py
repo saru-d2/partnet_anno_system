@@ -46,7 +46,7 @@ model_id = file_parts[-3]
 
 out_dir = os.path.join(os.path.dirname(in_file),  '..', new_part_dir)
 if not os.path.exists(out_dir):
-    os.mkdir(out_dir)
+    os.makedirs(out_dir)
 
 # get the new part id to generate
 cur_id = -1

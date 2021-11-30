@@ -617,7 +617,7 @@ THREE.OBJLoader = ( function () {
 				// Skip o/g line declarations that did not follow with any faces
 				if ( geometry.vertices.length === 0 ) continue;
 
-				var buffergeometry = new THREE.BufferGeometry();
+				var buffergeometry = new THREE.Geometry();
 
 				buffergeometry.addAttribute( 'position', new THREE.Float32BufferAttribute( geometry.vertices, 3 ) );
 

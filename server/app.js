@@ -58,9 +58,11 @@ app.use('/submit_remesh_cut', submit_remesh_cut);
 var template_viewer = require('./routes/template_viewer');
 app.use('/template_viewer', template_viewer);
 
+// console.log(app._router.stack);
 //The 404 Route (ALWAYS Keep this as the last route)
 app.get('*', function(req, res){
     res.send('404: Not found!', 404);
 });
 
 module.exports = app;
+

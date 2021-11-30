@@ -3,7 +3,7 @@ window.load_cat_names = function() {
 
     var keys = ['Bag', 'Bed', 'Bottle', 'Bowl', 'Chair', 'Clock', 'Dishwasher', 'Display', 'Door', 'Earphone', 
         'Faucet', 'Hat', 'Keyboard', 'Knife', 'Lamp', 'Laptop', 'Microwave', 'Mug', 'Refrigerator', 'Scissors', 
-        'StorageFurniture', 'Table', 'TrashCan', 'Vase'];
+        'StorageFurniture', 'Table', 'Tower', 'TrashCan', 'Vase'];
 
     keys.forEach(function(item) {
         var option = document.createElement('option');

@@ -308,7 +308,7 @@ THREE.PLYLoader.prototype = {
 
 		function postProcess( buffer ) {
 
-			var geometry = new THREE.BufferGeometry();
+			var geometry = new THREE.Geometry();
 
 			// mandatory buffer data
 
