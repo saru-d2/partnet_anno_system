@@ -26,6 +26,8 @@ RUN apt-get update && apt-get install -y -q --no-install-recommends \
     wget \
     python3-dev \
     python3-pip \
+    lsof \
+    cmake \
     && rm -rf /var/lib/apt/lists/*
 
 ENV NODE_VERSION 16.6.2
@@ -97,7 +99,7 @@ RUN npm --prefix=./client install --build-from-source
 # RUN mysql -u root -p < mysql/create_table.sql
 RUN python3 -m pip install mysql-connector-python numpy geometry-utils
 RUN npm install nodemon -g
-RUN apt-get update && apt-get install lsof cmake
+
 RUN git clone --recursive -j$(nproc) git://github.com/hjwdzh/Manifold \
   && cd Manifold && mkdir build \
   && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release\
