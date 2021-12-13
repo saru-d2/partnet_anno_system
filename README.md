@@ -8,7 +8,13 @@
 
 This repo contains the web-based part segmentation annotation interface for PartNet.
 
-Our 3D web-based GUI is build upon Node.js, Express.js and Three.js frameworks. Please check the README in `client` and `server` folders for setup instructions.
+<!-- Our 3D web-based GUI is build upon Node.js, Express.js and Three.js frameworks. Please check the README in `client` and `server` folders for setup instructions. -->
+Run 
+1. ``docker-compose build``
+2. ``docker-compose up``
+3. If up fails once then run ``docker-compose down``
+4. Rerun ``docker-compose up``
+5. If you would like to use ``nodemon`` then replace ``node ./bin/www`` with ``nodemon ./bin/www`` in ``server/package.json`` and follow steps 1 and 2 again.
 
 
 ## Paper and Dataset
