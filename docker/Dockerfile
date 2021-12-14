@@ -105,6 +105,7 @@ RUN git clone --recursive -j$(nproc) git://github.com/hjwdzh/Manifold \
   && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release\
   && make && cd ../../
 
+RUN cd client && sh build.sh && cd ..
 # ENTRYPOINT [ "python3", "./server/mysql/import_into_mysql.py", "localhost", "root", "p@ssw0rd1", "&&","npm", "start","--prefix","./server" ]
 # RUN python3 ./server/mysql/import_into_mysql.py localhost root p@ssw0rd1
 # CMD [ "npm", "start", "--prefix", "./server" ]
