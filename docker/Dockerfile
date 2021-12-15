@@ -5,10 +5,11 @@ WORKDIR /usr/src/app
 # ADD ${root_loc}/server /usr/src/app/server
 # ADD ${root_loc}/images /usr/src/app/images
 # ADD ${root_loc}/storage /usr/src/app/storage
-ADD ./client /usr/src/app/client
-ADD ./server /usr/src/app/server
-ADD ./images /usr/src/app/images
-ADD ./storage /usr/src/app/storage
+# ADD ./client /usr/src/app/client
+# ADD ./server /usr/src/app/server
+# ADD ./images /usr/src/app/images
+# ADD ./storage /usr/src/app/storage
+ADD ./ /usr/src/app/
 # Replace shell with bash so we can source files
 RUN rm /bin/sh && ln -s /bin/bash /bin/sh
 
