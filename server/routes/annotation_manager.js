@@ -548,14 +548,18 @@ router.get('/get_new_model/:catname-:username', function(req, res, next) {
 
                             // create a new folder on disk
                             var dir_fn = server.DIR + '/' + server.ANNO_DIR + '/' + new_anno_id;
-                            fs.mkdirSync(dir_fn);
+                            if (! fs.existsSync(dir_fn))
+                                fs.mkdirSync(dir_fn);
 
                             var new_dir = dir_fn + '/' + server.REMESH_PART_DIR;
-                            fs.mkdirSync(new_dir);
+                            if (! fs.existsSync(new_dir))
+                                fs.mkdirSync(new_dir);
                             new_dir = dir_fn + '/' + server.NEW_PART_DIR;
-                            fs.mkdirSync(new_dir);
+                            if (! fs.existsSync(new_dir))
+                                fs.mkdirSync(new_dir);
                             new_dir = dir_fn + '/' + server.ANNO_RES_DIR;
-                            fs.mkdirSync(new_dir);
+                            if (! fs.existsSync(new_dir))
+                                fs.mkdirSync(new_dir);
 
                             // update the record from model table: ++ numAnno
                             const query = "UPDATE Model\n" +
