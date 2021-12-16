@@ -99,6 +99,7 @@ var PartAnnotator = function(params) {
     this.scene.add(this.light4);
 
     this.wireframe_switch = false;
+    this.paint_switch = false;
     this.clock = new THREE.Clock();
     this.controls = new CameraControls( this.camera, this.renderer.domElement);
     this.controls.infinityDolly = true;
@@ -207,6 +208,15 @@ PartAnnotator.prototype.process_key_press = function(event) {
 
             // W/w --> toggle wireframe on/off
             scope.wireframe_switch = !scope.wireframe_switch;
+            console.log('[press key] W', scope.wireframe_switch)
+            scope.toggle_wireframe();
+
+        }
+        else if (event.keyCode === 80 || event.keyCode === 112) {
+
+            // P/p --> toggle paint mode
+            scope.paint_switch = !scope.paint_switch;
+            console.log('[press key] P', scope.paint_switch)
             scope.toggle_wireframe();
 
         } else if (event.keyCode === 82 || event.keyCode === 114) {
@@ -2865,6 +2875,40 @@ PartAnnotator.prototype.part_hier_save = function() {
         }
     );
 };
+
+var Pencil = (function () {
+    function Pencil() {
+        this._canvasContext = null;
+    }
+    Object.defineProperty(Pencil.prototype, "radius", {
+        get: function () {
+            return 1;
+        },
+        enumerable: true,
+        configurable: true
+    });
+    Pencil.prototype.startStroke = function (canvas, position) {
+        this._canvasContext = canvas.getContext('2d');
+        this._canvasContext.beginPath();
+        this._canvasContext.save(); // Assumption: nobody else will call this until the stroke is finished
+        this._canvasContext.lineWidth = this.radius * 2;
+        this._canvasContext.moveTo(position.x, position.y);
+    };
+    Pencil.prototype.continueStoke = function (position) {
+        if (this._canvasContext) {
+            this._canvasContext.lineTo(position.x, position.y);
+            this._canvasContext.stroke();
+        }
+    };
+    Pencil.prototype.finishStroke = function () {
+        if (this._canvasContext) {
+            this._canvasContext.restore();
+            this._canvasContext = null;
+        }
+    };
+    return Pencil;
+})();
+PartAnnotator.Pencil = Pencil;
 
 PartAnnotator.prototype.save_first_snapshot = function() {
     // save snapshot
