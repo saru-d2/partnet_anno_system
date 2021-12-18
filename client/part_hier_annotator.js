@@ -99,6 +99,7 @@ var PartAnnotator = function(params) {
     this.scene.add(this.light4);
 
     this.wireframe_switch = false;
+    this.paint_mode = false;
     this.clock = new THREE.Clock();
     this.controls = new CameraControls( this.camera, this.renderer.domElement);
     this.controls.infinityDolly = true;
@@ -208,8 +209,17 @@ PartAnnotator.prototype.process_key_press = function(event) {
             // W/w --> toggle wireframe on/off
             scope.wireframe_switch = !scope.wireframe_switch;
             scope.toggle_wireframe();
+            console.log('scope.wireframe', scope.wireframe_switch)
 
-        } else if (event.keyCode === 82 || event.keyCode === 114) {
+        }
+        else if (event.keyCode === 80 || event.keyCode === 112) {
+            
+            // P/p --> toggle paint mode on/off
+            scope.paint_mode = !scope.paint_mode;
+            console.log('scope.paint_mode', scope.paint_mode)
+
+        } 
+         else if (event.keyCode === 82 || event.keyCode === 114) {
 
             // R/r --> toggle camera reset
             scope.on_window_resize();
