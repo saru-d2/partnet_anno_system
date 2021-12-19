@@ -2,7 +2,7 @@ var THREE = require('three');
 var be_config = require('./config/backend.js');
 var ObjMtlLoader = require("obj-mtl-loader");
 // var OrbitControls = require('three-orbit-controls')(THREE);
-var {OrbitControls} = require('./js/OrbitControls.js');
+var { OrbitControls } = require('./js/OrbitControls.js');
 // import { OrbitControls } from "./js/OrbitControls.js";
 // import { OrbitControlsGizmo } from "./js/OrbitControlsGizmo.js";
 //var {OrbitControlsGizmo} = require('./js/OrbitControlsGizmo.js');
@@ -11,13 +11,14 @@ var FormData = require('form-data');
 var Timer = require('easytimer.js');
 var CameraControls = require('camera-controls');
 const { SSL_OP_NO_COMPRESSION } = require('constants');
-CameraControls.install( { THREE: THREE } );
+CameraControls.install({ THREE: THREE });
 // import CameraControls from 'camera-controls';
 
+var DecalGeometry = require('./js/THREE.DecalGeometry');
 
 var scope;
 
-var PartAnnotator = function(params) {
+var PartAnnotator = function (params) {
 
     this.bg_color_normal = 0xffffff;
 
@@ -42,6 +43,23 @@ var PartAnnotator = function(params) {
     scope.template_filename = 'template.json';
     scope.all_example_img_filelist = 'all_example_img_filelist.json';
 
+    this.decals = [];
+    this.decalHelper, this.mouseHelper;
+    this.p = new THREE.Vector3(0, 0, 0);
+    this.r = new THREE.Vector3(0, 0, 0);
+    this.s = new THREE.Vector3(10, 10, 10);
+    this.up = new THREE.Vector3(0, 1, 0);
+    this.check = new THREE.Vector3(1, 1, 1);
+    this.mouse = new THREE.Vector2();
+    this.mouseVector = new THREE.Vector3();
+    // this.projector = new THREE.Projector();
+    this.raycaster = new THREE.Raycaster();
+    this.intersection = {
+        intersects: false,
+        point: new THREE.Vector3(),
+        normal: new THREE.Vector3()
+    };
+
     console.log('Anno Id: ', this.anno_id);
     console.log('Load Parent Anno: ', this.load_parent_anno);
     console.log('Allow Edit: ', this.allow_edit);
@@ -57,28 +75,36 @@ var PartAnnotator = function(params) {
     }
 
     // setup the camera, scene, render, lights
-    this.camera = new THREE.PerspectiveCamera( 60, this.CANVAS_WIDTH / this.CANVAS_HEIGHT, 0.001, 1000);
+    this.camera = new THREE.PerspectiveCamera(60, this.CANVAS_WIDTH / this.CANVAS_HEIGHT, 0.001, 1000);
     // this.camera.position.set(-1, 0, -1);
     this.camera.position.set(0, 0.1, 0.12);
     this.camera.lookAt(new THREE.Vector3(0, 0, 0));
-    
+
 
     // this.controls.update();
 
     this.scene = new THREE.Scene();
     this.obj_bbox = new THREE.Box3();
-    const axesHelper = new THREE.AxesHelper( 5 );
-    this.scene.add( axesHelper );
+    const axesHelper = new THREE.AxesHelper(5);
+    this.scene.add(axesHelper);
+    this.line = new THREE.Line(new THREE.Geometry(), new THREE.LineBasicMaterial({ linewidth: 4 }));
+    this.line.geometry.vertices.push(new THREE.Vector3(0, 0, 0));
+    this.line.geometry.vertices.push(new THREE.Vector3(0, 0, 0));
+    this.scene.add(this.line);
+
+    this.mouseHelper = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 1), new THREE.MeshNormalMaterial());
+    this.scene.add(this.mouseHelper);
+    // this.mouseHelper.visible = false;
 
     this.renderer = new THREE.WebGLRenderer({
         preserveDrawingBuffer: true
     });
-    this.renderer.setPixelRatio( window.devicePixelRatio );
-    this.renderer.setSize( this.CANVAS_WIDTH, this.CANVAS_HEIGHT );
+    this.renderer.setPixelRatio(window.devicePixelRatio);
+    this.renderer.setSize(this.CANVAS_WIDTH, this.CANVAS_HEIGHT);
 
     this.scene3d.append(this.renderer.domElement);
 
-    this.amb_light = new THREE.AmbientLight( 0x404040 );
+    this.amb_light = new THREE.AmbientLight(0x404040);
     this.amb_light.intensity = 2;
     this.scene.add(this.amb_light);
 
@@ -101,8 +127,23 @@ var PartAnnotator = function(params) {
     this.wireframe_switch = false;
     this.paint_mode = false;
     this.clock = new THREE.Clock();
-    this.controls = new CameraControls( this.camera, this.renderer.domElement);
+    this.controls = new CameraControls(this.camera, this.renderer.domElement);
     this.controls.infinityDolly = true;
+
+    this.decalMaterial = new THREE.MeshPhongMaterial( { 
+        specular: 0xffffff,
+        shininess: 10,
+        map: THREE.ImageUtils.loadTexture( 'splatter.png' ), 
+        normalScale: new THREE.Vector2( .15, .15 ),
+        transparent: true, 
+        depthTest: true, 
+        depthWrite: false, 
+        polygonOffset: true,
+        polygonOffsetFactor: -4, 
+        wireframe: false 
+    });
+
+    this.decals = []
     // setup controls
     // this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     // this.controls.minDistance = 0;
@@ -115,23 +156,131 @@ var PartAnnotator = function(params) {
     // this.controlsGizmo = new  OrbitControlsGizmo(this.controls, { size:  100, padding:  8 });
     // document.body.appendChild(this.controlsGizmo.domElement);
 
-   
-    // listen to UI interactions
-    window.addEventListener( 'resize', this.on_window_resize, false );
-    this.renderer.domElement.addEventListener('mousemove',
-        function() {
-           
 
-            scope.mouse_x = ( ( event.clientX - scope.renderer.domElement.offsetLeft ) / scope.renderer.domElement.clientWidth ) * 2 - 1;
-            scope.mouse_y = - ( ( event.clientY - scope.renderer.domElement.offsetTop ) / scope.renderer.domElement.clientHeight ) * 2 + 1;
-            // add your condition here v-view state and call your functin with these argmuments.
-            if (scope.threed_ui_state === 'remesh_cut') {
-                scope.part_cut_mouse_hoover();
+    // listen to UI interactions
+    window.addEventListener('resize', this.on_window_resize, false);
+
+
+    this.renderer.domElement.addEventListener('mousemove',
+        function (event) {
+            scope.mouse_x = ((event.clientX - scope.renderer.domElement.offsetLeft) / scope.renderer.domElement.clientWidth) * 2 - 1;
+            scope.mouse_y = - ((event.clientY - scope.renderer.domElement.offsetTop) / scope.renderer.domElement.clientHeight) * 2 + 1;
+            if (scope.paint_mode == false) {
+
+                // add your condition here v-view state and call your functin with these argmuments.
+                if (scope.threed_ui_state === 'remesh_cut') {
+                    scope.part_cut_mouse_hoover();
+                }
+                // else if (scope.threed_ui_state === 'view') {
+                //     scope.zoom_camera_to_point();
+                // }
             }
-            // else if (scope.threed_ui_state === 'view') {
-            //     scope.zoom_camera_to_point();
-            // }
+            else {
+                // move the normalbox
+                checkIntersection();
+            }
         });
+
+    this.renderer.domElement.addEventListener('mousedown',
+        function(event) {
+            if (scope.paint_mode == true) {
+                shoot();
+            }
+        });
+        
+
+    function shoot() {
+        console.log('shoot')
+        p = scope.intersection.point;
+        var r = new THREE.Vector3
+        r.copy(scope.mouseHelper.rotation);
+
+        var scene_objs = [];
+        scope.scene.traverse(function (object) {
+
+            if (object.isMesh && object != scope.mouseHelper) scene_objs.push(object);
+
+        });
+        var s = new THREE.Vector3( 10, 10, 10 );
+        var check = new THREE.Vector3( 1, 1, 1 );
+        var m = new THREE.Mesh(new DecalGeometry(scene_objs, 
+        p, r, s, check), scope.decalMaterial);
+        scope.decals.push(m);
+        scope.scene.add(m);
+    }
+
+    function removeDecals() {
+        scope.decals.forEach( function( d ) {
+            scope.scene.remove( d );
+            d = null;
+        } );
+        decals = [];
+    }
+
+    function mergeDecals() {
+
+        var merge = {};
+        scope.decals.forEach(function (decal) {
+            
+            var uuid = decal.material.uuid;
+            var d = merge[uuid] = merge[uuid] || {};
+            d.material = d.material || decal.material;
+            d.geometry = d.geometry || new THREE.Geometry();
+            d.geometry.merge(decal.geometry, decal.matrix);
+            
+        });
+    
+        removeDecals();
+    
+        for (var key in merge) {
+            
+            var d = merge[key];
+            var mesh = new THREE.Mesh(d.geometry, d.material);
+            scope.scene.add(mesh);
+            scope.decals.push(mesh);
+        
+        }
+    
+    }
+
+
+    function checkIntersection() {
+
+        var raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(new THREE.Vector2(scope.mouse_x, scope.mouse_y), scope.camera);
+        var scene_objs = [];
+        scope.scene.traverse(function (object) {
+
+            if (object.isMesh && object != scope.mouseHelper) scene_objs.push(object);
+
+        });
+        // console.log(scope.mouse_x, scope.mouse_y);
+        var intersects = raycaster.intersectObjects(scene_objs);
+
+        if (intersects.length > 0) {
+
+            var p = intersects[0].point;
+            scope.mouseHelper.position.copy(p);
+            scope.intersection.point.copy(p);
+            var n = intersects[0].face.normal.clone();
+            n.multiplyScalar(10);
+            n.add(intersects[0].point);
+            scope.intersection.normal.copy(intersects[0].face.normal);
+            scope.mouseHelper.lookAt(n);
+
+            scope.line.geometry.vertices[0].copy(scope.intersection.point);
+            scope.line.geometry.vertices[1].copy(n);
+            scope.line.geometry.verticesNeedUpdate = true;
+
+            scope.intersection.intersects = true;
+
+        } else {
+
+            scope.intersection.intersects = false;
+
+        }
+
+    }
 
     // raycaster and mouse interactions
     this.mouse_x = null;
@@ -143,15 +292,15 @@ var PartAnnotator = function(params) {
     $(document).keypress(this.process_key_press);
 
     // set up for the plane clipping
-    var clipping_plane_x = new THREE.Plane( new THREE.Vector3( 1, 0, 0 ), 1 );
-    var clipping_plane_y = new THREE.Plane( new THREE.Vector3( 0, -1, 0 ), 1 );
-    var clipping_plane_z = new THREE.Plane( new THREE.Vector3( 0, 0, 1 ), 1 );
+    var clipping_plane_x = new THREE.Plane(new THREE.Vector3(1, 0, 0), 1);
+    var clipping_plane_y = new THREE.Plane(new THREE.Vector3(0, -1, 0), 1);
+    var clipping_plane_z = new THREE.Plane(new THREE.Vector3(0, 0, 1), 1);
 
     this.plane_clipping_x = 1;
     this.plane_clipping_y = 1;
     this.plane_clipping_z = 1;
 
-    var globalPlanes = [ clipping_plane_x, clipping_plane_y, clipping_plane_z ], Empty = Object.freeze( [] );
+    var globalPlanes = [clipping_plane_x, clipping_plane_y, clipping_plane_z], Empty = Object.freeze([]);
 
     // plane clipping GUI
     this.gui = new dat.GUI();
@@ -159,20 +308,20 @@ var PartAnnotator = function(params) {
 
     this.folderGlobal = this.gui.addFolder(plane_clipping_name);
     this.propsGlobal = {
-        get 'X' () { return clipping_plane_x.constant; },
-        set 'X' ( v ) {
+        get 'X'() { return clipping_plane_x.constant; },
+        set 'X'(v) {
             clipping_plane_x.constant = v;
             scope.plane_clipping_x = v;
             scope.render();
-            },
-        get 'Y' () { return clipping_plane_y.constant; },
-        set 'Y' ( v ) {
+        },
+        get 'Y'() { return clipping_plane_y.constant; },
+        set 'Y'(v) {
             clipping_plane_y.constant = v;
             scope.plane_clipping_y = v;
             scope.render();
         },
-        get 'Z' () { return clipping_plane_z.constant; },
-        set 'Z' ( v ) {
+        get 'Z'() { return clipping_plane_z.constant; },
+        set 'Z'(v) {
             clipping_plane_z.constant = v;
             scope.plane_clipping_z = v;
             scope.render();
@@ -180,9 +329,9 @@ var PartAnnotator = function(params) {
     };
 
     this.renderer.clippingPlanes = globalPlanes;
-    this.folderGlobal.add( this.propsGlobal, 'X', -1, 1 ); this.folderGlobal.__controllers[0].domElement.hidden = false;
-    this.folderGlobal.add( this.propsGlobal, 'Y', -1, 1 ); this.folderGlobal.__controllers[1].domElement.hidden = false;
-    this.folderGlobal.add( this.propsGlobal, 'Z', -1, 1 ); this.folderGlobal.__controllers[2].domElement.hidden = false;
+    this.folderGlobal.add(this.propsGlobal, 'X', -1, 1); this.folderGlobal.__controllers[0].domElement.hidden = false;
+    this.folderGlobal.add(this.propsGlobal, 'Y', -1, 1); this.folderGlobal.__controllers[1].domElement.hidden = false;
+    this.folderGlobal.add(this.propsGlobal, 'Z', -1, 1); this.folderGlobal.__controllers[2].domElement.hidden = false;
     this.folderGlobal.open();
 
     this.other_str = 'other';
@@ -200,10 +349,10 @@ var PartAnnotator = function(params) {
 };
 
 // process keypress
-PartAnnotator.prototype.process_key_press = function(event) {
+PartAnnotator.prototype.process_key_press = function (event) {
     var target = event.target || event.srcElement;
     var targetTagName = (target.nodeType == 1) ? target.nodeName.toUpperCase() : "";
-    if ( !/INPUT|SELECT|TEXTAREA/.test(targetTagName) ) {
+    if (!/INPUT|SELECT|TEXTAREA/.test(targetTagName)) {
         if (event.keyCode === 87 || event.keyCode === 119) {
 
             // W/w --> toggle wireframe on/off
@@ -215,20 +364,18 @@ PartAnnotator.prototype.process_key_press = function(event) {
         else if (event.keyCode === 80 || event.keyCode === 112) {
 
             // P/p --> toggle paint mode
-            scope.paint_switch = !scope.paint_switch;
-            console.log('[press key] P', scope.paint_switch)
-            scope.toggle_wireframe();
-            console.log('scope.wireframe', scope.wireframe_switch)
+            scope.paint_mode = !scope.paint_mode;
+            console.log('[press key] P', scope.paint_mode)
 
         }
         else if (event.keyCode === 80 || event.keyCode === 112) {
-            
+
             // P/p --> toggle paint mode on/off
             scope.paint_mode = !scope.paint_mode;
             console.log('scope.paint_mode', scope.paint_mode)
 
-        } 
-         else if (event.keyCode === 82 || event.keyCode === 114) {
+        }
+        else if (event.keyCode === 82 || event.keyCode === 114) {
 
             // R/r --> toggle camera reset
             scope.on_window_resize();
@@ -242,7 +389,7 @@ PartAnnotator.prototype.process_key_press = function(event) {
                 return;
             }
 
-            switch(scope.threed_ui_state) {
+            switch (scope.threed_ui_state) {
                 case "idle":
                     alert('Please answer the question on the left! You can only annotate parts on the model when we ask you to do so!');
                     break;
@@ -266,7 +413,7 @@ PartAnnotator.prototype.process_key_press = function(event) {
         } else if (event.keyCode === 77 || event.keyCode === 109) {
 
             // M/m --> request remesh the current set of selected parts
-            switch(scope.threed_ui_state) {
+            switch (scope.threed_ui_state) {
                 case "part_select":
                     scope.process_remeshing_request();
                     break;
@@ -331,16 +478,16 @@ PartAnnotator.prototype.process_key_press = function(event) {
                 return;
             }
 
-            switch(scope.threed_ui_state) {
+            switch (scope.threed_ui_state) {
                 case "remesh_wait":
                     alert('Please wait for remeshing result!');
                     break;
                 case "remesh_segment":
-                    if (scope.total_part_cut ===0) {
+                    if (scope.total_part_cut === 0) {
                         alert('There is no part cut at all!');
                         break;
                     }
-                    if(scope.boundary_segments.length > 0) {
+                    if (scope.boundary_segments.length > 0) {
                         var prompt_str;
                         prompt_str = 'We detect that you are generating the segmentation boundary for the next part. Are you sure ' +
                             'to undo the last part cut? The segments you are generating will be removed!';
@@ -370,7 +517,7 @@ PartAnnotator.prototype.process_key_press = function(event) {
                 return;
             }
 
-            switch(scope.threed_ui_state) {
+            switch (scope.threed_ui_state) {
                 case "remesh_segment":
                     scope.process_boundary_delete();
                     break;
@@ -388,7 +535,7 @@ PartAnnotator.prototype.process_key_press = function(event) {
                 return;
             }
 
-            switch(scope.threed_ui_state) {
+            switch (scope.threed_ui_state) {
                 case "remesh_segment":
                     scope.select_previous_segment();
                     break;
@@ -406,7 +553,7 @@ PartAnnotator.prototype.process_key_press = function(event) {
                 return;
             }
 
-            switch(scope.threed_ui_state) {
+            switch (scope.threed_ui_state) {
                 case "remesh_segment":
                     scope.select_next_segment();
                     break;
@@ -424,9 +571,9 @@ PartAnnotator.prototype.process_key_press = function(event) {
                 return;
             }
 
-            switch(scope.threed_ui_state) {
+            switch (scope.threed_ui_state) {
                 case "remesh_segment":
-                    if(scope.boundary_segments.length > 0) {
+                    if (scope.boundary_segments.length > 0) {
                         var prompt_str;
                         prompt_str = 'We detect that you are generating the segmentation boundary for the next part. Are you sure ' +
                             'to submit the current results? The segments you are generating will be removed!';
@@ -446,10 +593,10 @@ PartAnnotator.prototype.process_key_press = function(event) {
                     break;
             }
 
-        }  else if (event.keyCode === 71 || event.keyCode === 103) {
+        } else if (event.keyCode === 71 || event.keyCode === 103) {
 
             // g/G --> Show/Hide global shape context during part cutting
-            switch(scope.threed_ui_state) {
+            switch (scope.threed_ui_state) {
                 case "remesh_wait":
                     alert('Please wait for remeshing result!')
                     break;
@@ -465,7 +612,7 @@ PartAnnotator.prototype.process_key_press = function(event) {
             }
         } else if (event.keyCode === 65 || event.keyCode === 97) {
 
-            switch(scope.threed_ui_state) {
+            switch (scope.threed_ui_state) {
                 case "idle":
                 case "part_select":
                     // a/A --> trigger next question
@@ -479,7 +626,7 @@ PartAnnotator.prototype.process_key_press = function(event) {
 
         } else if (event.keyCode === 69 || event.keyCode === 101) {
 
-            switch(scope.threed_ui_state) {
+            switch (scope.threed_ui_state) {
                 case "idle":
                 case "part_select":
                     // e/E --> trigger edit answer
@@ -493,7 +640,7 @@ PartAnnotator.prototype.process_key_press = function(event) {
 
         } else if (event.keyCode === 90 || event.keyCode === 122) {
 
-            switch(scope.threed_ui_state) {
+            switch (scope.threed_ui_state) {
                 case "idle":
                 case "part_select":
                     // z/Z --> trigger clear answer
@@ -504,7 +651,7 @@ PartAnnotator.prototype.process_key_press = function(event) {
                     }
             }
 
-        }else if(event.keyCode == 86){
+        } else if (event.keyCode == 86) {
             // v/V --> view by selecting point
             scope.zoom_camera_to_point();
             // switch(scope.threed_ui_state) {
@@ -514,8 +661,8 @@ PartAnnotator.prototype.process_key_press = function(event) {
             // }
         }
 
-        }
-    
+    }
+
 };
 
 
@@ -571,7 +718,7 @@ PartAnnotator.prototype.start = function () {
 
             // wait for template hier to be loaded before loading
             // the instance tree and its associated obj files
-            var check_obj_load_finish = function() {
+            var check_obj_load_finish = function () {
                 if (scope.num_obj_to_load !== undefined && scope.current_num_obj_loaded === scope.num_obj_to_load) {
                     clearInterval(scope.check_obj_load_finish_interval);
 
@@ -597,17 +744,17 @@ PartAnnotator.prototype.start = function () {
                     scope.folderGlobal.__controllers[0].__min = -scope.plane_x_max - 0.1;
                     scope.folderGlobal.__controllers[0].__max = -scope.plane_x_min + 0.1;
                     scope.folderGlobal.__controllers[0].updateDisplay();
-                    scope.folderGlobal.__controllers[0].setValue(-scope.plane_x_min+0.1);
+                    scope.folderGlobal.__controllers[0].setValue(-scope.plane_x_min + 0.1);
 
                     scope.folderGlobal.__controllers[1].__min = scope.plane_y_min - 0.1;
                     scope.folderGlobal.__controllers[1].__max = scope.plane_y_max + 0.1;
                     scope.folderGlobal.__controllers[1].updateDisplay();
-                    scope.folderGlobal.__controllers[1].setValue(scope.plane_y_max+0.1);
+                    scope.folderGlobal.__controllers[1].setValue(scope.plane_y_max + 0.1);
 
                     scope.folderGlobal.__controllers[2].__min = -scope.plane_z_max - 0.1;
                     scope.folderGlobal.__controllers[2].__max = -scope.plane_z_min + 0.1;
                     scope.folderGlobal.__controllers[2].updateDisplay();
-                    scope.folderGlobal.__controllers[2].setValue(-scope.plane_z_min+0.1);
+                    scope.folderGlobal.__controllers[2].setValue(-scope.plane_z_min + 0.1);
 
                     // load the other stuffs
                     if (scope.load_parent_anno && scope.anno_version > 0) {
@@ -618,7 +765,7 @@ PartAnnotator.prototype.start = function () {
                 }
             };
 
-            var check_load_part_hier_template = function() {
+            var check_load_part_hier_template = function () {
                 if (scope.switch_load_part_hier_template === true) {
                     clearInterval(scope.check_load_part_hier_template_interval);
 
@@ -652,13 +799,13 @@ PartAnnotator.prototype.start = function () {
 PartAnnotator.prototype.render = function () {
     //requestAnimationFrame( scope.render );//hulala
     const delta = scope.clock.getDelta();
-    const hasControlsUpdated = scope.controls.update( delta );
+    const hasControlsUpdated = scope.controls.update(delta);
     requestAnimationFrame(scope.render);
     // scope.renderer.render( scope.scene, scope.camera );//just remove this comment
-    if ( hasControlsUpdated ) {
-		scope.renderer.render( scope.scene, scope.camera );
+    if (hasControlsUpdated) {
+        scope.renderer.render(scope.scene, scope.camera);
         // var selected_mesh;
-        
+
         // if(scope.selected_part_objs.length !== 0){
         //     for (let obj of scope.selected_part_objs){
         //         if(obj.type === "Mesh"){
@@ -667,8 +814,8 @@ PartAnnotator.prototype.render = function () {
         //             break;
         //         }
         //     }
-            
-            
+
+
         // }
         // if(selected_mesh===undefined){
         //     //console.log("iam not in selected");
@@ -684,33 +831,33 @@ PartAnnotator.prototype.render = function () {
         //     scope.obj_bbox.copy( selected_mesh.geometry.boundingBox ).applyMatrix4( selected_mesh.matrixWorld );
         //     //console.log("bbox: ", scope.obj_bbox);
         // }
-        
 
-	}
+
+    }
     // scope.controls.update();
 };
 
 
 // for rendering
-PartAnnotator.prototype.on_window_resize = function() {
+PartAnnotator.prototype.on_window_resize = function () {
 
     scope.CANVAS_WIDTH = scope.scene3d.width();
     scope.CANVAS_HEIGHT = scope.scene3d.height();
 
-    console.log('[on window resize] width: ', scope.CANVAS_WIDTH+ ' height: ', scope.CANVAS_HEIGHT);
+    console.log('[on window resize] width: ', scope.CANVAS_WIDTH + ' height: ', scope.CANVAS_HEIGHT);
 
     scope.camera.aspect = scope.CANVAS_WIDTH / scope.CANVAS_HEIGHT;
     scope.camera.updateProjectionMatrix();
 
-    scope.renderer.setSize( scope.CANVAS_WIDTH, scope.CANVAS_HEIGHT );
+    scope.renderer.setSize(scope.CANVAS_WIDTH, scope.CANVAS_HEIGHT);
 
     scope.controls.reset();
     scope.render();
 };
 
-PartAnnotator.prototype.toggle_wireframe = function() {
+PartAnnotator.prototype.toggle_wireframe = function () {
     scope.scene.children.forEach(function (child) {
-        if(child.type === 'Mesh' && child.is_part_mesh) {
+        if (child.type === 'Mesh' && child.is_part_mesh) {
             for (let mat of child.material) {
                 mat.wireframe = scope.wireframe_switch;
             }
@@ -720,7 +867,7 @@ PartAnnotator.prototype.toggle_wireframe = function() {
 };
 
 // show instruction at beginning
-PartAnnotator.prototype.show_instruction = function() {
+PartAnnotator.prototype.show_instruction = function () {
     var instr = '\n********* Camera Control *************\n';
     instr += '[Mouse: left] --> Drag at orbit-view mode\n';
     instr += '[Mouse: right] --> Drag at Pan-view model\n';
@@ -742,7 +889,7 @@ PartAnnotator.prototype.show_instruction = function() {
     instr += 'B/b --> Submit the part cutting\n';
     instr += 'V/v --> Zoom Camera to selected point on mesh\n';
 
-    alert('Instructions:'+instr);
+    alert('Instructions:' + instr);
 };
 
 
@@ -752,17 +899,17 @@ PartAnnotator.prototype.show_instruction = function() {
 // -----------------------------------------------------------
 
 
-PartAnnotator.prototype.load_wordnet_words = function() {
+PartAnnotator.prototype.load_wordnet_words = function () {
     var file_path = '/wordnet_words_small.json';
-    console.log('[Load WordNet Words ]: loading from '+file_path);
+    console.log('[Load WordNet Words ]: loading from ' + file_path);
     var xmlhttp = new XMLHttpRequest();
     scope = this;
-    xmlhttp.onreadystatechange = function() {
+    xmlhttp.onreadystatechange = function () {
         if (this.readyState === 4 && this.status === 200) {
             scope.wordnet_words = JSON.parse(this.responseText);
-            console.log('[load WordNet Words] successfully loaded '+scope.wordnet_words.length+' words from WordNet!');
+            console.log('[load WordNet Words] successfully loaded ' + scope.wordnet_words.length + ' words from WordNet!');
 
-            scope.wordnet_words.forEach(function(item) {
+            scope.wordnet_words.forEach(function (item) {
                 var option = document.createElement('option');
                 option.value = item;
                 $('#wordnet_words').append(option);
@@ -773,13 +920,13 @@ PartAnnotator.prototype.load_wordnet_words = function() {
     xmlhttp.send();
 };
 
-PartAnnotator.prototype.load_model_screenshots = function(image_id) {
-    var file_path = be_config.remoteHost+':'+be_config.remotePort+be_config.get_model_screenshot+'/'+
-        scope.model_id+'/'+image_id;
-    console.log('[Load Model ScreenShot ]: loading from '+file_path);
+PartAnnotator.prototype.load_model_screenshots = function (image_id) {
+    var file_path = be_config.remoteHost + ':' + be_config.remotePort + be_config.get_model_screenshot + '/' +
+        scope.model_id + '/' + image_id;
+    console.log('[Load Model ScreenShot ]: loading from ' + file_path);
     var xmlhttp = new XMLHttpRequest();
     scope = this;
-    xmlhttp.onreadystatechange = function() {
+    xmlhttp.onreadystatechange = function () {
         if (this.readyState === 4 && this.status === 200) {
             var outputImg = document.createElement('img');
             outputImg.style.height = '90%';
@@ -795,11 +942,11 @@ PartAnnotator.prototype.load_model_screenshots = function(image_id) {
 };
 
 // load parent anno obj list
-PartAnnotator.prototype.load_parent_obj_list = function(file_path) {
-    console.log('[load_parent_obj_list]: loading from '+file_path);
+PartAnnotator.prototype.load_parent_obj_list = function (file_path) {
+    console.log('[load_parent_obj_list]: loading from ' + file_path);
     var xmlhttp = new XMLHttpRequest();
     scope = this;
-    xmlhttp.onreadystatechange = function() {
+    xmlhttp.onreadystatechange = function () {
         if (this.readyState === 4 && this.status === 200) {
             var scene_graph_json = JSON.parse(this.responseText);
             scope.num_obj_to_load = scene_graph_json.length;
@@ -816,11 +963,11 @@ PartAnnotator.prototype.load_parent_obj_list = function(file_path) {
 };
 
 // load obj scene-graph tree
-PartAnnotator.prototype.load_leaf_part_json = function(file_path) {
-    console.log('[Load Leaf Part Json]: loading from '+file_path);
+PartAnnotator.prototype.load_leaf_part_json = function (file_path) {
+    console.log('[Load Leaf Part Json]: loading from ' + file_path);
     var xmlhttp = new XMLHttpRequest();
     scope = this;
-    xmlhttp.onreadystatechange = function() {
+    xmlhttp.onreadystatechange = function () {
         if (this.readyState === 4 && this.status === 200) {
             var leaf_node_part_list = JSON.parse(this.responseText);
             scope.num_obj_to_load = leaf_node_part_list.length;
@@ -834,20 +981,20 @@ PartAnnotator.prototype.load_leaf_part_json = function(file_path) {
 };
 
 // Get snapshot
-PartAnnotator.prototype.get_snapshot = function() {
-     try {
+PartAnnotator.prototype.get_snapshot = function () {
+    try {
         scope.snapshot = scope.renderer.domElement.toDataURL("image/jpeg");
         console.log('[get snapshot] Got image snapshot!');
     } catch (err) {
-        console.log('[get snapshot] error: '+err);
+        console.log('[get snapshot] error: ' + err);
     };
 };
 
-PartAnnotator.prototype.get_current_scene_obj_list = function() {
+PartAnnotator.prototype.get_current_scene_obj_list = function () {
     var res = [];
     for (let obj of scope.scene.children) {
-        if (obj.type ===  'Mesh' && obj.is_part_mesh && obj.part_type !== 'remesh') {
-            res.push(obj.part_type+'-'+obj.part_id);
+        if (obj.type === 'Mesh' && obj.is_part_mesh && obj.part_type !== 'remesh') {
+            res.push(obj.part_type + '-' + obj.part_id);
         }
     }
     return res;
@@ -860,7 +1007,7 @@ PartAnnotator.prototype.get_current_scene_obj_list = function() {
 // -----------------------------------------------------------
 
 
-PartAnnotator.prototype.threed_setup = function() {
+PartAnnotator.prototype.threed_setup = function () {
     // states:  idle, part_select, remesh_wait, remesh_show_global,
     //          remesh_segment, remesh_cut, remesh_final
     scope.threed_ui_state = 'idle';
@@ -875,7 +1022,7 @@ PartAnnotator.prototype.threed_setup = function() {
 // load single obj
 PartAnnotator.prototype.load_obj = function (part_type, part_id) {
 
-    var file_path = be_config.remoteHost+':'+be_config.remotePort;
+    var file_path = be_config.remoteHost + ':' + be_config.remotePort;
     console.log("$$$$$$$$$$ ", part_type, part_id);
 
     if (part_type === 'original') {
@@ -886,28 +1033,28 @@ PartAnnotator.prototype.load_obj = function (part_type, part_id) {
     } else if (part_type === 'remesh') {
         file_path += be_config.get_remesh_part + '/' + scope.anno_id + '-' + part_id;
     } else {
-        console.error('[Load OBJ] part type '+part_type+' is not valid!');
+        console.error('[Load OBJ] part type ' + part_type + ' is not valid!');
         return;
     }
 
-    console.log('[Load OBJ]: loading from '+file_path);
+    console.log('[Load OBJ]: loading from ' + file_path);
 
     var objMtlLoader = new ObjMtlLoader();
     scope = this;
 
-    objMtlLoader.load(file_path, function(err, result) {
-        if(err){
-            console.log('ERROR loading from '+file_path);
+    objMtlLoader.load(file_path, function (err, result) {
+        if (err) {
+            console.log('ERROR loading from ' + file_path);
         }
 
         var vertices = result.vertices;
         var faces = result.faces;
         var geometry = new THREE.Geometry();
-        for(var i = 0; i < vertices.length; ++i) {
+        for (var i = 0; i < vertices.length; ++i) {
             var point = new THREE.Vector3(vertices[i][0], vertices[i][1], vertices[i][2]);
             geometry.vertices.push(point);
         }
-        for(i = 0; i < faces.length; ++i) {
+        for (i = 0; i < faces.length; ++i) {
             for (var j = 1; j <= faces[i].indices.length - 2; ++j) {
                 var face = new THREE.Face3(faces[i].indices[0] - 1, faces[i].indices[j] - 1, faces[i].indices[j + 1] - 1);
                 face.faceid = i;
@@ -918,15 +1065,15 @@ PartAnnotator.prototype.load_obj = function (part_type, part_id) {
         geometry.computeVertexNormals();
 
         var opacMaterial = new THREE.MeshPhongMaterial({
-            transparent:true,
-            opacity:0.2,
+            transparent: true,
+            opacity: 0.2,
             color: scope.default_part_color,
             vertexColors: THREE.VertexColors,
             side: THREE.DoubleSide,
             flatShading: true
         });
         var solidMaterial = new THREE.MeshPhongMaterial({
-            transparent:false,
+            transparent: false,
             color: scope.default_part_color,
             vertexColors: THREE.VertexColors,
             side: THREE.DoubleSide,
@@ -942,15 +1089,17 @@ PartAnnotator.prototype.load_obj = function (part_type, part_id) {
         mesh.url = file_path;
         mesh.part_select = false;
 
-        console.log('vertex number: '+mesh.geometry.vertices.length);
-        console.log('face number: '+mesh.geometry.faces.length);
+        scope.mesh = mesh
 
-        
+        console.log('vertex number: ' + mesh.geometry.vertices.length);
+        console.log('face number: ' + mesh.geometry.faces.length);
+
+
         mesh.geometry.computeBoundingBox();
-        scope.obj_bbox.copy( mesh.geometry.boundingBox ).applyMatrix4( mesh.matrixWorld );
+        scope.obj_bbox.copy(mesh.geometry.boundingBox).applyMatrix4(mesh.matrixWorld);
 
-        scope.controls.setOrbitPoint((scope.obj_bbox.min.x+scope.obj_bbox.max.x)/2, 
-        (scope.obj_bbox.min.y+scope.obj_bbox.max.y)/2, (scope.obj_bbox.min.z+scope.obj_bbox.max.z)/2, false);
+        scope.controls.setOrbitPoint((scope.obj_bbox.min.x + scope.obj_bbox.max.x) / 2,
+            (scope.obj_bbox.min.y + scope.obj_bbox.max.y) / 2, (scope.obj_bbox.min.z + scope.obj_bbox.max.z) / 2, false);
 
         scope.scene.add(mesh);
 
@@ -972,21 +1121,21 @@ PartAnnotator.prototype.load_obj = function (part_type, part_id) {
             scope.render();
         }
 
-        ++ scope.current_num_obj_loaded;
+        ++scope.current_num_obj_loaded;
     });
 };
 // -----------------------------------------------------------
 //               MODULE: Camera Utils: Part Lookup
 // -----------------------------------------------------------
-PartAnnotator.prototype.zoom_camera_to_point = function(){
+PartAnnotator.prototype.zoom_camera_to_point = function () {
     var raycaster = new THREE.Raycaster();
     raycaster.setFromCamera(new THREE.Vector2(scope.mouse_x, scope.mouse_y), scope.camera);
     var scene_objs = [];
-    scope.scene.traverse( function( object ) {
+    scope.scene.traverse(function (object) {
 
-        if ( object.isMesh ) scene_objs.push(object);
-    
-    } );
+        if (object.isMesh) scene_objs.push(object);
+
+    });
     console.log(scope.mouse_x, scope.mouse_y);
     console.log(scene_objs);
     var intersects = raycaster.intersectObjects(scene_objs);
@@ -1001,14 +1150,14 @@ PartAnnotator.prototype.zoom_camera_to_point = function(){
         }
         ++intersect_id;
     }
-    if(intersects.length > 0){
+    if (intersects.length > 0) {
         var pnt = intersects[0].point;
         var cam_pos = scope.camera.position;
-        var distance = Math.sqrt((cam_pos.x-pnt.x)**2 + (cam_pos.y-pnt.y)**2 + (cam_pos.z-pnt.z)**2);
-        console.log("distance: ", distance); 
+        var distance = Math.sqrt((cam_pos.x - pnt.x) ** 2 + (cam_pos.y - pnt.y) ** 2 + (cam_pos.z - pnt.z) ** 2);
+        console.log("distance: ", distance);
         scope.controls.dollyTo(distance, true);
     }
-    
+
     //scope.controls.setPosition(pnt.x, pnt.y, pnt.z, );
     console.log("num intersections: ", intersects.length);
 };
@@ -1019,7 +1168,7 @@ PartAnnotator.prototype.zoom_camera_to_point = function(){
 
 
 // part select state init
-PartAnnotator.prototype.part_select_init = function() {
+PartAnnotator.prototype.part_select_init = function () {
 
     console.log('[part_select_init]');
 
@@ -1042,9 +1191,9 @@ PartAnnotator.prototype.part_select_init = function() {
 };
 
 // process part click
-PartAnnotator.prototype.process_part_select = function() {
+PartAnnotator.prototype.process_part_select = function () {
     var raycaster = new THREE.Raycaster();
-    console.log('[Process Part Select] Point: '+scope.mouse_x+', '+scope.mouse_y);
+    console.log('[Process Part Select] Point: ' + scope.mouse_x + ', ' + scope.mouse_y);
     raycaster.setFromCamera(new THREE.Vector2(scope.mouse_x, scope.mouse_y), scope.camera);
     var intersects = raycaster.intersectObjects(scope.scene.children);
     var intersect_id = 0;
@@ -1058,7 +1207,7 @@ PartAnnotator.prototype.process_part_select = function() {
         if (obj instanceof THREE.Mesh && obj.is_part_mesh && obj.visible && under_clipping) {
             break;
         }
-        ++ intersect_id;
+        ++intersect_id;
     }
     if (intersect_id < intersects.length) {
         var selected_part = intersects[intersect_id].object;
@@ -1093,7 +1242,7 @@ PartAnnotator.prototype.process_part_select = function() {
 
 
 // some const variables for remeshing and part cutting
-PartAnnotator.prototype.remesh_setup = function() {
+PartAnnotator.prototype.remesh_setup = function () {
     scope.bg_color_remesh = 0xADD8E6;
 
     scope.color_segment_normal = "yellow";
@@ -1107,16 +1256,16 @@ PartAnnotator.prototype.remesh_setup = function() {
 };
 function minValue(arr) {
     let min = arr[0];
-  
+
     for (let val of arr) {
-      if (val < min) {
-        min = val;
-      }
+        if (val < min) {
+            min = val;
+        }
     }
     return min;
-  }
+}
 // init for the remeshed part
-PartAnnotator.prototype.remesh_part_init = function(mesh) {
+PartAnnotator.prototype.remesh_part_init = function (mesh) {
     scope.cut_edge_set = null;
     scope.total_part_cut = null;
 
@@ -1157,11 +1306,11 @@ PartAnnotator.prototype.remesh_part_init = function(mesh) {
     if (part_x_len / shape_x_len > radius_ratio) smalled_radius_ratio.push(part_x_len / shape_x_len);
     if (part_y_len / shape_y_len > radius_ratio) smalled_radius_ratio.push(part_y_len / shape_y_len);
     if (part_z_len / shape_z_len > radius_ratio) smalled_radius_ratio.push(part_z_len / shape_z_len);
-    if (smalled_radius_ratio.length > 1){
-        radius_ratio = minValue(smalled_radius_ratio)/15;
-    } 
-        
-    if (isNaN(radius_ratio)){
+    if (smalled_radius_ratio.length > 1) {
+        radius_ratio = minValue(smalled_radius_ratio) / 15;
+    }
+
+    if (isNaN(radius_ratio)) {
         radius_ratio = 0;
     }
     console.log("part_x_len / shape_x_len: ", part_x_len / shape_x_len);
@@ -1208,7 +1357,7 @@ PartAnnotator.prototype.remesh_part_init = function(mesh) {
 };
 
 // request remesh from the server
-PartAnnotator.prototype.process_remeshing_request = function() {
+PartAnnotator.prototype.process_remeshing_request = function () {
     if (scope.selected_part_objs.size === 0) {
         alert('Please select some parts before requesting for remeshing!');
         return;
@@ -1221,11 +1370,11 @@ PartAnnotator.prototype.process_remeshing_request = function() {
     var num_new_obj = 0, num_ori_obj = 0;
     for (let obj of obj_list) {
         if (obj.part_type === 'original') {
-            ++ num_ori_obj;
+            ++num_ori_obj;
         } else if (obj.part_type === 'new') {
-            ++ num_new_obj;
+            ++num_new_obj;
         } else {
-            alert('System Error, please contact admin. Error: [process_remeshing_request] unexpected mesh type: '+obj.part_type);
+            alert('System Error, please contact admin. Error: [process_remeshing_request] unexpected mesh type: ' + obj.part_type);
             return;
         }
     }
@@ -1306,7 +1455,7 @@ PartAnnotator.prototype.process_remeshing_request = function() {
 };
 
 // undo the current remeshing operation
-PartAnnotator.prototype.undo_current_remeshing = function() {
+PartAnnotator.prototype.undo_current_remeshing = function () {
 
     scope.process_boundary_delete_all();
 
@@ -1324,7 +1473,7 @@ PartAnnotator.prototype.undo_current_remeshing = function() {
     var offset_z = scope.current_remesh_obj.center_offset.z;
 
     scope.scene.children.forEach(function (child) {
-        if(child instanceof THREE.Mesh && child.is_part_mesh) {
+        if (child instanceof THREE.Mesh && child.is_part_mesh) {
             if (child.part_type === 'remesh') {
                 scope.scene.remove(child);
             } else {
@@ -1387,7 +1536,7 @@ PartAnnotator.prototype.undo_current_remeshing = function() {
 
 // compute the meta information for remeshed part
 // will be used later for computing the shortest-path cut
-PartAnnotator.prototype.compute_meta_information = function(mesh) {
+PartAnnotator.prototype.compute_meta_information = function (mesh) {
     console.log('[compute_meta_information] enter');
 
     var geom = mesh.geometry;
@@ -1397,8 +1546,8 @@ PartAnnotator.prototype.compute_meta_information = function(mesh) {
         scope.map[i] = [];
     }
 
-    var get_edge_name = function(x, y) {
-        if (x < y) return x+'-'+y; else return y+'-'+x;
+    var get_edge_name = function (x, y) {
+        if (x < y) return x + '-' + y; else return y + '-' + x;
     };
 
     var min_x = undefined, max_x = undefined;
@@ -1406,7 +1555,7 @@ PartAnnotator.prototype.compute_meta_information = function(mesh) {
     var min_z = undefined, max_z = undefined;
 
     var small, big, edge, i, face, edge_dist;
-    for (i = 0; i < geom.faces.length; ++i){
+    for (i = 0; i < geom.faces.length; ++i) {
         face = geom.faces[i];
 
         edge = get_edge_name(face.a, face.b);
@@ -1445,7 +1594,7 @@ PartAnnotator.prototype.compute_meta_information = function(mesh) {
         if (max_z === undefined || max_z < vert.z) max_z = vert.z;
     }
 
-    var shuffle = function(a) {
+    var shuffle = function (a) {
         for (let i = a.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
             [a[i], a[j]] = [a[j], a[i]];
@@ -1465,17 +1614,17 @@ PartAnnotator.prototype.compute_meta_information = function(mesh) {
 
 
 // toggle show/hide global shape as context during remeshed part cutting
-PartAnnotator.prototype.remesh_toggle_show_global_shape_context = function() {
+PartAnnotator.prototype.remesh_toggle_show_global_shape_context = function () {
     scope.toggle_remesh_show_global = !scope.toggle_remesh_show_global;
 
     var selected_part_ids = [];
     for (let obj of scope.selected_part_objs) {
-        selected_part_ids.push(obj.part_type+'-'+obj.part_id);
+        selected_part_ids.push(obj.part_type + '-' + obj.part_id);
     }
 
     for (let child of scope.scene.children) {
         if (child.type === 'Mesh' && child.is_part_mesh && child.part_type !== 'remesh'
-            && selected_part_ids.indexOf(child.part_type+'-'+child.part_id) < 0) {
+            && selected_part_ids.indexOf(child.part_type + '-' + child.part_id) < 0) {
             child.visible = scope.toggle_remesh_show_global;
         }
     };
@@ -1489,14 +1638,14 @@ PartAnnotator.prototype.remesh_toggle_show_global_shape_context = function() {
 // -----------------------------------------------------------
 
 // initialize for boundary segmentation
-PartAnnotator.prototype.init_segmentation_boundary = function() {
+PartAnnotator.prototype.init_segmentation_boundary = function () {
     scope.current_segment_id = null;
     scope.boundary_segments = [];
 };
 
 
 // initialize a new segment (remove the current path/segment/boundary)
-PartAnnotator.prototype.get_a_new_segment = function() {
+PartAnnotator.prototype.get_a_new_segment = function () {
     var new_segment = new Map();
     new_segment.clicked_vertex = [];
     new_segment.vertex_sphere = [];
@@ -1507,7 +1656,7 @@ PartAnnotator.prototype.get_a_new_segment = function() {
 };
 
 // find nearest vertex given a clicked face and a clicked point
-PartAnnotator.prototype.FindNearestVertex = function(face, point) {
+PartAnnotator.prototype.FindNearestVertex = function (face, point) {
     var min_dist = 1000;
     var min_index = 0;
     var vertex;
@@ -1515,11 +1664,11 @@ PartAnnotator.prototype.FindNearestVertex = function(face, point) {
     var count = 0;
     var min_vertex;
     var face_list = [face.a, face.b, face.c];
-    for (var i = 0; i < 3; ++i){
+    for (var i = 0; i < 3; ++i) {
         var vertex = face_list[i];
         var coord = geom.vertices[vertex];
-        var dist = Math.pow(coord.x-point.x, 2)+Math.pow(coord.y-point.y, 2)+Math.pow(coord.z-point.z, 2);
-        if (dist < min_dist){
+        var dist = Math.pow(coord.x - point.x, 2) + Math.pow(coord.y - point.y, 2) + Math.pow(coord.z - point.z, 2);
+        if (dist < min_dist) {
             min_dist = dist;
             min_index = count;
             min_vertex = vertex;
@@ -1530,7 +1679,7 @@ PartAnnotator.prototype.FindNearestVertex = function(face, point) {
 };
 
 // process point click
-PartAnnotator.prototype.process_remesh_point_click = function() {
+PartAnnotator.prototype.process_remesh_point_click = function () {
     var raycaster = new THREE.Raycaster();
     raycaster.setFromCamera(new THREE.Vector2(scope.mouse_x, scope.mouse_y), scope.camera);
 
@@ -1562,7 +1711,7 @@ PartAnnotator.prototype.process_remesh_point_click = function() {
         }
 
         var current_segment = scope.boundary_segments[scope.current_segment_id];
-        console.log('current segment: '+scope.current_segment_id+'/'+scope.boundary_segments.length);
+        console.log('current segment: ' + scope.current_segment_id + '/' + scope.boundary_segments.length);
 
         // update the path each time when adding a new point
         // loop all the O(n) segment and find the best segment
@@ -1578,7 +1727,7 @@ PartAnnotator.prototype.process_remesh_point_click = function() {
         } else {
 
             var i, p1, p2, dj_res1, dj_res2, dist_diff, dj_dist1, dj_dist2;
-            var min_i, min_dist=null, min_dist1, min_dist2, min_seg1, min_seg2;
+            var min_i, min_dist = null, min_dist1, min_dist2, min_seg1, min_seg2;
             var all_dj_res = [];
             for (i = 0; i < current_segment.clicked_vertex.length; ++i) {
                 p = current_segment.clicked_vertex.slice(i)[0];
@@ -1588,7 +1737,7 @@ PartAnnotator.prototype.process_remesh_point_click = function() {
             for (i = 0; i < current_segment.clicked_vertex.length; ++i) {
                 var dj_res1 = all_dj_res[i];
                 dj_dist1 = dj_res1.length - 1;
-                var dj_res2 = all_dj_res[(i+1)%current_segment.clicked_vertex.length];
+                var dj_res2 = all_dj_res[(i + 1) % current_segment.clicked_vertex.length];
                 dj_dist2 = dj_res2.length - 1;
                 dist_diff = dj_dist1 + dj_dist2 - current_segment.segment_distance[i];
                 if (min_dist === null || min_dist > dist_diff) {
@@ -1598,12 +1747,12 @@ PartAnnotator.prototype.process_remesh_point_click = function() {
                 }
             }
 
-            current_segment.clicked_vertex.splice( min_i+1, 0, nearest_vertex);
-            current_segment.vertex_sphere.splice(min_i+1, 0, sphere);
+            current_segment.clicked_vertex.splice(min_i + 1, 0, nearest_vertex);
+            current_segment.vertex_sphere.splice(min_i + 1, 0, sphere);
             current_segment.segment.splice(min_i, 1, min_seg1);
-            current_segment.segment.splice(min_i+1, 0, min_seg2);
+            current_segment.segment.splice(min_i + 1, 0, min_seg2);
             current_segment.segment_distance.splice(min_i, 1, min_dist1);
-            current_segment.segment_distance.splice(min_i+1, 0, min_dist2);
+            current_segment.segment_distance.splice(min_i + 1, 0, min_dist2);
 
             if (current_segment.segment_line[min_i] !== undefined) {
                 console.log(current_segment.segment_line[min_i]);
@@ -1615,7 +1764,7 @@ PartAnnotator.prototype.process_remesh_point_click = function() {
             var line1 = scope.render_path(min_seg1);
             current_segment.segment_line.splice(min_i, 1, line1);
             var line2 = scope.render_path(min_seg2);
-            current_segment.segment_line.splice(min_i+1, 0, line2);
+            current_segment.segment_line.splice(min_i + 1, 0, line2);
 
         }
     }
@@ -1623,7 +1772,7 @@ PartAnnotator.prototype.process_remesh_point_click = function() {
 
 
 // process point delete
-PartAnnotator.prototype.process_remesh_point_delete = function() {
+PartAnnotator.prototype.process_remesh_point_delete = function () {
     if (scope.boundary_segments.length === 0) return;
 
     var raycaster = new THREE.Raycaster();
@@ -1656,13 +1805,13 @@ PartAnnotator.prototype.process_remesh_point_delete = function() {
         }
 
         for (var i = 0; i < current_segment.clicked_vertex.length; ++i) {
-            if (current_segment.clicked_vertex[i] ===  nearest_vertex) {
+            if (current_segment.clicked_vertex[i] === nearest_vertex) {
 
-                var left_vertex = (current_segment.clicked_vertex.length+i-1) % current_segment.clicked_vertex.length;
-                var right_vertex = (current_segment.clicked_vertex.length+i+1) % current_segment.clicked_vertex.length;
+                var left_vertex = (current_segment.clicked_vertex.length + i - 1) % current_segment.clicked_vertex.length;
+                var right_vertex = (current_segment.clicked_vertex.length + i + 1) % current_segment.clicked_vertex.length;
 
                 var dj_res = scope.dj_mesh_by_vertex(current_segment.clicked_vertex[left_vertex], current_segment.clicked_vertex[right_vertex]);
-                var dj_dist = dj_res.length  - 1;
+                var dj_dist = dj_res.length - 1;
                 var line = scope.render_path(dj_res);
 
                 current_segment.clicked_vertex.splice(i, 1);
@@ -1694,7 +1843,7 @@ PartAnnotator.prototype.process_remesh_point_delete = function() {
 };
 
 // highlight a segment (remove the current path/segment/boundary)
-PartAnnotator.prototype.highlight_segment = function() {
+PartAnnotator.prototype.highlight_segment = function () {
     if (scope.current_segment_id !== null) {
         var current_segment = scope.boundary_segments[scope.current_segment_id];
         for (let point of current_segment.vertex_sphere) {
@@ -1710,7 +1859,7 @@ PartAnnotator.prototype.highlight_segment = function() {
 };
 
 // de-highlight a segment (remove the current path/segment/boundary)
-PartAnnotator.prototype.de_highlight_segment = function() {
+PartAnnotator.prototype.de_highlight_segment = function () {
     if (scope.current_segment_id !== null) {
         var current_segment = scope.boundary_segments[scope.current_segment_id];
         for (let point of current_segment.vertex_sphere) {
@@ -1726,8 +1875,8 @@ PartAnnotator.prototype.de_highlight_segment = function() {
 };
 
 // process boundary delete (remove the current path/segment/boundary)
-PartAnnotator.prototype.process_boundary_delete = function() {
-    if (scope.boundary_segments.length ===0) {
+PartAnnotator.prototype.process_boundary_delete = function () {
+    if (scope.boundary_segments.length === 0) {
         return;
     }
 
@@ -1737,7 +1886,7 @@ PartAnnotator.prototype.process_boundary_delete = function() {
         scope.scene.remove(point);
     }
     // de-render all lines
-    for (let lines of current_segment.segment_line){
+    for (let lines of current_segment.segment_line) {
         if (lines !== undefined) {
             for (let line_geom of lines) {
                 scope.scene.remove(line_geom);
@@ -1756,7 +1905,7 @@ PartAnnotator.prototype.process_boundary_delete = function() {
     scope.render();
 };
 
-PartAnnotator.prototype.process_boundary_delete_all = function() {
+PartAnnotator.prototype.process_boundary_delete_all = function () {
     var t = scope.boundary_segments.length;
     for (var i = 0; i < t; ++i) {
         scope.current_segment_id = 0;
@@ -1766,17 +1915,17 @@ PartAnnotator.prototype.process_boundary_delete_all = function() {
 };
 
 // select previous segment
-PartAnnotator.prototype.select_previous_segment = function() {
+PartAnnotator.prototype.select_previous_segment = function () {
     if (scope.current_segment_id !== null && scope.current_segment_id > 0) {
         scope.de_highlight_segment();
-        -- scope.current_segment_id;
+        --scope.current_segment_id;
         scope.highlight_segment();
     }
-    console.log('seg id: '+scope.current_segment_id+'/'+scope.boundary_segments.length);
+    console.log('seg id: ' + scope.current_segment_id + '/' + scope.boundary_segments.length);
 };
 
 // select next segment
-PartAnnotator.prototype.select_next_segment = function() {
+PartAnnotator.prototype.select_next_segment = function () {
     if (scope.current_segment_id !== null) {
         if (scope.boundary_segments[scope.current_segment_id].clicked_vertex.length > 0) {
             scope.de_highlight_segment();
@@ -1787,13 +1936,13 @@ PartAnnotator.prototype.select_next_segment = function() {
             scope.highlight_segment();
         }
     }
-    console.log('seg id: '+scope.current_segment_id+'/'+scope.boundary_segments.length);
+    console.log('seg id: ' + scope.current_segment_id + '/' + scope.boundary_segments.length);
 };
 
 // compute shortest_path from source to destination
 // assume edge weight all to be one
 // just degrade to compute BFS
-PartAnnotator.prototype.dj_mesh_by_vertex = function(source, destination) {
+PartAnnotator.prototype.dj_mesh_by_vertex = function (source, destination) {
     var queue = [source];
     var visited = [];
     visited[source] = source;
@@ -1819,25 +1968,25 @@ PartAnnotator.prototype.dj_mesh_by_vertex = function(source, destination) {
 };
 
 // render a single point
-PartAnnotator.prototype.render_single_point =  function(vertex) {
+PartAnnotator.prototype.render_single_point = function (vertex) {
     var geom = scope.current_remesh_obj.geometry;
-    console.log('[Render Point]: '+geom.vertices[vertex].x+', '+geom.vertices[vertex].y+', '+geom.vertices[vertex].z);
+    console.log('[Render Point]: ' + geom.vertices[vertex].x + ', ' + geom.vertices[vertex].y + ', ' + geom.vertices[vertex].z);
     // var geometry = new THREE.SphereGeometry( scope.segment_sphere_radius*scope.radius_multiplier, 32, 32 );
-    var geometry = new THREE.SphereGeometry(scope.segment_sphere_radius*scope.radius_multiplier, 32, 32 );
+    var geometry = new THREE.SphereGeometry(scope.segment_sphere_radius * scope.radius_multiplier, 32, 32);
     console.log("Radius Multiplier:: ", scope.radius_multiplier);
     geometry.translate(geom.vertices[vertex].x, geom.vertices[vertex].y, geom.vertices[vertex].z);
-    var material = new THREE.MeshPhongMaterial( {color: scope.color_segment_highlight} );
-    var sphere = new THREE.Mesh( geometry, material );
+    var material = new THREE.MeshPhongMaterial({ color: scope.color_segment_highlight });
+    var sphere = new THREE.Mesh(geometry, material);
     sphere.is_part_mesh = false;
-    scope.scene.add( sphere );
+    scope.scene.add(sphere);
     scope.render();
     return sphere;
 };
 
 // render a path
-PartAnnotator.prototype.render_path = function(vertices_path) {
+PartAnnotator.prototype.render_path = function (vertices_path) {
 
-    var cylinderMesh = function(pointX, pointY) {
+    var cylinderMesh = function (pointX, pointY) {
         var direction = new THREE.Vector3().subVectors(pointY, pointX);
         var orientation = new THREE.Matrix4();
         orientation.lookAt(pointX, pointY, new THREE.Object3D().up);
@@ -1845,10 +1994,10 @@ PartAnnotator.prototype.render_path = function(vertices_path) {
             0, 0, 1, 0,
             0, -1, 0, 0,
             0, 0, 0, 1));
-        var edgeGeometry = new THREE.CylinderGeometry(scope.remesh_boundary_line_width*scope.radius_multiplier,
-            scope.remesh_boundary_line_width*scope.radius_multiplier, direction.length(), 8, 1);
+        var edgeGeometry = new THREE.CylinderGeometry(scope.remesh_boundary_line_width * scope.radius_multiplier,
+            scope.remesh_boundary_line_width * scope.radius_multiplier, direction.length(), 8, 1);
         var edge = new THREE.Mesh(edgeGeometry,
-            new THREE.MeshBasicMaterial( { color: scope.color_segment_highlight }));
+            new THREE.MeshBasicMaterial({ color: scope.color_segment_highlight }));
         edge.applyMatrix(orientation);
         // position based on midpoints - there may be a better solution than this
         edge.position.x = (pointY.x + pointX.x) / 2;
@@ -1862,7 +2011,7 @@ PartAnnotator.prototype.render_path = function(vertices_path) {
 
     var lines = [];
     for (var i = 0; i < vertices_path.length - 1; ++i) {
-        var new_line_mesh = cylinderMesh(geom.vertices[vertices_path[i]], geom.vertices[vertices_path[i+1]]);
+        var new_line_mesh = cylinderMesh(geom.vertices[vertices_path[i]], geom.vertices[vertices_path[i + 1]]);
         new_line_mesh.is_part_mesh = false;
         scope.scene.add(new_line_mesh);
         lines.push(new_line_mesh);
@@ -1879,7 +2028,7 @@ PartAnnotator.prototype.render_path = function(vertices_path) {
 
 
 // process part cutting
-PartAnnotator.prototype.process_part_cut = function() {
+PartAnnotator.prototype.process_part_cut = function () {
     var geom = scope.current_remesh_obj.geometry;
     console.log('Cutting the remeshed part');
 
@@ -1890,7 +2039,7 @@ PartAnnotator.prototype.process_part_cut = function() {
         for (let data of segment.segment) {
             for (i = 0; i < data.length - 1; ++i) {
                 v1 = data[i];
-                v2 = data[i+1];
+                v2 = data[i + 1];
                 small = Math.min(v1, v2);
                 big = Math.max(v1, v2);
                 edge = small + '-' + big;
@@ -1908,14 +2057,14 @@ PartAnnotator.prototype.process_part_cut = function() {
     var current_part_id = 0, q, cur, face, v1, v2, v3, edge_list;
     for (var i = 0; i < geom.faces.length; ++i) {
         if (scope.remesh_part_seg[i] === 0 && scope.remesh_new_part_seg[i] === 0) {
-            ++ current_part_id;
+            ++current_part_id;
 
-            var get_edge_name = function(x, y) {
-                if (x < y) return x+'-'+y; else return y+'-'+x;
+            var get_edge_name = function (x, y) {
+                if (x < y) return x + '-' + y; else return y + '-' + x;
             }
 
             q = [];
-            console.log('start from: '+i+' '+current_part_id);
+            console.log('start from: ' + i + ' ' + current_part_id);
             q.push(i); scope.remesh_new_part_seg[i] = current_part_id;
             while (q.length > 0) {
                 cur = q.shift();
@@ -1935,7 +2084,7 @@ PartAnnotator.prototype.process_part_cut = function() {
         }
     }
 
-    console.log('total part: '+current_part_id);
+    console.log('total part: ' + current_part_id);
 
     scope.process_boundary_delete_all();
 
@@ -1951,14 +2100,14 @@ PartAnnotator.prototype.process_part_cut = function() {
             g = Math.floor(Math.random() * 256);
             b = Math.floor(Math.random() * 256);
 
-            diff = Math.abs(r-g) + Math.abs(r-b) + Math.abs(b-g);
+            diff = Math.abs(r - g) + Math.abs(r - b) + Math.abs(b - g);
 
             if (!(g < 70 && b < 70 && r > 200) && diff > 100) {
                 break;
             }
         }
 
-        scope.remesh_new_part_seg_color[i+1] = 'rgb(' + r + ',' + g + ',' + b + ')';
+        scope.remesh_new_part_seg_color[i + 1] = 'rgb(' + r + ',' + g + ',' + b + ')';
     }
 
     for (var i = 0; i < geom.faces.length; ++i) {
@@ -2019,7 +2168,7 @@ PartAnnotator.prototype.part_cut_mouse_hoover = function () {
 };
 
 // undo the part selection hoover stage
-PartAnnotator.prototype.undo_current_boundary_cut = function() {
+PartAnnotator.prototype.undo_current_boundary_cut = function () {
     var geom = scope.current_remesh_obj.geometry;
     for (var i = 0; i < geom.faces.length; ++i) {
         if (scope.remesh_part_seg[i] === 0) {
@@ -2035,7 +2184,7 @@ PartAnnotator.prototype.undo_current_boundary_cut = function() {
 };
 
 // process remesh part select
-PartAnnotator.prototype.process_remesh_part_select = function() {
+PartAnnotator.prototype.process_remesh_part_select = function () {
     var raycaster = new THREE.Raycaster();
     raycaster.setFromCamera(new THREE.Vector2(scope.mouse_x, scope.mouse_y), scope.camera);
 
@@ -2058,7 +2207,7 @@ PartAnnotator.prototype.process_remesh_part_select = function() {
     }
 
     if (select_seg_id !== null) {
-        ++ scope.total_part_cut;
+        ++scope.total_part_cut;
         var geom = scope.current_remesh_obj.geometry;
         var has_non_assigned_face = false;
         for (var i = 0; i < geom.faces.length; ++i) {
@@ -2091,7 +2240,7 @@ PartAnnotator.prototype.process_remesh_part_select = function() {
 
 
 // process undo part cutting
-PartAnnotator.prototype.process_part_cut_undo = function() {
+PartAnnotator.prototype.process_part_cut_undo = function () {
     var geom = scope.current_remesh_obj.geometry;
 
     console.log('[Process Part Cut Undo]');
@@ -2104,7 +2253,7 @@ PartAnnotator.prototype.process_part_cut_undo = function() {
                 geom.faces[i].materialIndex = 0;
             }
         }
-        -- scope.total_part_cut;
+        --scope.total_part_cut;
     }
 
     geom.colorsNeedUpdate = true;
@@ -2124,7 +2273,7 @@ PartAnnotator.prototype.process_part_cut_undo = function() {
 
 
 // submit part cutting result
-PartAnnotator.prototype.gen_last_part_cut_before_submission = function() {
+PartAnnotator.prototype.gen_last_part_cut_before_submission = function () {
     if (scope.total_part_cut === 0) {
         alert('You have not done any cut yet! Want to cancel the cutting, please M/m!');
         return;
@@ -2139,7 +2288,7 @@ PartAnnotator.prototype.gen_last_part_cut_before_submission = function() {
         g = Math.floor(Math.random() * 256);
         b = Math.floor(Math.random() * 256);
 
-        diff = Math.abs(r-g) + Math.abs(r-b) + Math.abs(b-g);
+        diff = Math.abs(r - g) + Math.abs(r - b) + Math.abs(b - g);
 
         if (!(g < 70 && b < 70 && r > 200) && diff > 100) {
             break;
@@ -2166,14 +2315,14 @@ PartAnnotator.prototype.gen_last_part_cut_before_submission = function() {
         ++scope.total_part_cut;
     }
 
-    alert(prefix+'You have generated ' + scope.total_part_cut + ' parts in total. ' +
+    alert(prefix + 'You have generated ' + scope.total_part_cut + ' parts in total. ' +
         'To undo the last part cut, press U/u. To submit the results, press B/b again.');
 
     scope.threed_ui_state = 'remesh_final';
 };
 
 // submit part cutting result
-PartAnnotator.prototype.submit_part_cutting_result = function() {
+PartAnnotator.prototype.submit_part_cutting_result = function () {
 
     // submit the new cuts and replace the old part with the new cuts
     scope.submit_part_cutting_result_to_server();
@@ -2185,9 +2334,9 @@ PartAnnotator.prototype.submit_part_cutting_result = function() {
 // submit part cutting result back to server
 // server will generate an obj for each new part
 // and return them back for click-and-group
-PartAnnotator.prototype.submit_part_cutting_result_to_server = function() {
-    var url = be_config.remoteHost+':'+be_config.remotePort+be_config.submit_remesh+'/' +
-        scope.anno_id+'-'+scope.current_remesh_obj.part_type+'-'+scope.current_remesh_obj.part_id;
+PartAnnotator.prototype.submit_part_cutting_result_to_server = function () {
+    var url = be_config.remoteHost + ':' + be_config.remotePort + be_config.submit_remesh + '/' +
+        scope.anno_id + '-' + scope.current_remesh_obj.part_type + '-' + scope.current_remesh_obj.part_id;
     console.log(url);
     request(
         {
@@ -2198,7 +2347,7 @@ PartAnnotator.prototype.submit_part_cutting_result_to_server = function() {
             },
             multipart: {
                 chunked: false,
-                data:[
+                data: [
                     {
                         'Content-Disposition': 'form-data; name="data"',
                         'Content-Type': 'application/json',
@@ -2220,14 +2369,14 @@ PartAnnotator.prototype.submit_part_cutting_result_to_server = function() {
 // load_new_part_from_remesh_cutting
 PartAnnotator.prototype.load_new_parts_from_remesh_cutting = function () {
 
-    var file_path = be_config.remoteHost+':'+be_config.remotePort+be_config.get_remesh_cut_json+'/'+
-        scope.anno_id+'-'+scope.current_remesh_obj.part_type+'-'+scope.current_remesh_obj.part_id;
+    var file_path = be_config.remoteHost + ':' + be_config.remotePort + be_config.get_remesh_cut_json + '/' +
+        scope.anno_id + '-' + scope.current_remesh_obj.part_type + '-' + scope.current_remesh_obj.part_id;
 
-    console.log('[Load Remesh Cut Output JSON]: loading from '+file_path);
+    console.log('[Load Remesh Cut Output JSON]: loading from ' + file_path);
 
     var xmlhttp = new XMLHttpRequest();
 
-    xmlhttp.onreadystatechange = function() {
+    xmlhttp.onreadystatechange = function () {
         if (this.readyState === 4 && this.status === 200) {
             var json = JSON.parse(this.responseText);
 
@@ -2259,7 +2408,7 @@ PartAnnotator.prototype.load_new_parts_from_remesh_cutting = function () {
 // -----------------------------------------------------------
 
 // init
-PartAnnotator.prototype.part_hier_setup = function() {
+PartAnnotator.prototype.part_hier_setup = function () {
     scope.switch_load_part_hier_template = false;
     scope.part_template_part_map = null;
 
@@ -2273,22 +2422,22 @@ PartAnnotator.prototype.part_hier_setup = function() {
 };
 
 // load existing instance tree annotation from json
-PartAnnotator.prototype.process_load_parent_anno = function() {
+PartAnnotator.prototype.process_load_parent_anno = function () {
     // load the current version
-    var json_url = be_config.remoteHost+':'+be_config.remotePort+be_config.get_anno_json+'/'+scope.anno_id+'-'+scope.anno_version;
-    
+    var json_url = be_config.remoteHost + ':' + be_config.remotePort + be_config.get_anno_json + '/' + scope.anno_id + '-' + scope.anno_version;
+
     document.getElementById("prompt").innerHTML = "Loading stored data! Please wait!";
 
-    $.getJSON( json_url, function( data ) {
-        console.log('Load parent anno:'+data);
+    $.getJSON(json_url, function (data) {
+        console.log('Load parent anno:' + data);
 
         scope.part_hier_instance_tree = data;
 
-        var recover_node = function(data) {
-            console.log('[recovering] '+data.text);
+        var recover_node = function (data) {
+            console.log('[recovering] ' + data.text);
             scope.current_instance_node_my_id = Math.max(scope.current_instance_node_my_id, data.my_id);
             scope.my_id_to_json_node[data.my_id] = data;
-            console.log('set '+data.text+' '+data.my_id+' to '+JSON.stringify(data));
+            console.log('set ' + data.text + ' ' + data.my_id + ' to ' + JSON.stringify(data));
             if ('nodes' in data) {
                 for (let subpart of data.nodes) {
                     recover_node(subpart);
@@ -2297,7 +2446,7 @@ PartAnnotator.prototype.process_load_parent_anno = function() {
             if ('parts' in data) {
                 scope.myId2partObjs[data.my_id] = [];
                 for (let obj of scope.scene.children) {
-                    if (data.parts.includes(obj.part_type+'-'+obj.part_id)) {
+                    if (data.parts.includes(obj.part_type + '-' + obj.part_id)) {
                         scope.myId2partObjs[data.my_id].push(obj);
                         obj.assigned_color = data.color;
                         for (let mat of obj.material) {
@@ -2312,7 +2461,7 @@ PartAnnotator.prototype.process_load_parent_anno = function() {
             recover_node(item);
         }
 
-        ++ scope.current_instance_node_my_id;
+        ++scope.current_instance_node_my_id;
 
         scope.visualize_instance_tree();
         scope.render();
@@ -2325,11 +2474,11 @@ PartAnnotator.prototype.process_load_parent_anno = function() {
 };
 
 // show the template hierarchy using
-PartAnnotator.prototype.load_part_hier_template = function() {
+PartAnnotator.prototype.load_part_hier_template = function () {
 
     var file_path = '/part_hier_templates/' + scope.model_cat + '/' + scope.template_filename;
 
-    $.getJSON(file_path, function(output) {
+    $.getJSON(file_path, function (output) {
 
         // generate the part map using name as unique id
         scope.part_template_part_map = {};
@@ -2365,17 +2514,18 @@ PartAnnotator.prototype.load_part_hier_template = function() {
 };
 
 // visualize part hier instance tree
-PartAnnotator.prototype.visualize_instance_tree = function() {
+PartAnnotator.prototype.visualize_instance_tree = function () {
     if (scope.part_hier_instance_selected_node !== null) {
         scope.de_highlight_annotated_subtree(scope.part_hier_instance_selected_node);
     }
 
     console.log('[visualize_instance_tree]', JSON.stringify(scope.part_hier_instance_tree));
 
-    $('#tree_instance').treeview({data: scope.part_hier_instance_tree,
+    $('#tree_instance').treeview({
+        data: scope.part_hier_instance_tree,
         showCheckbox: true,
-        onNodeChecked: function(event, node) {
-            console.log('[Node Checked] instance '+ node.my_id+ ' temp id: ' + node.name + ' ' + node.text);
+        onNodeChecked: function (event, node) {
+            console.log('[Node Checked] instance ' + node.my_id + ' temp id: ' + node.name + ' ' + node.text);
             scope.my_id_to_json_node[node.my_id].state.checked = true;
             if (node.nodes === null || node.nodes === undefined || node.nodes.length === 0) {
                 if (scope.myId2isLeaf[node.my_id]) {
@@ -2393,8 +2543,8 @@ PartAnnotator.prototype.visualize_instance_tree = function() {
                 }
             }
         },
-        onNodeUnchecked: function(event, node) {
-            console.log('[Node Unchecked] instance '+ node.my_id+ ' temp id: ' + node.name + ' ' + node.text);
+        onNodeUnchecked: function (event, node) {
+            console.log('[Node Unchecked] instance ' + node.my_id + ' temp id: ' + node.name + ' ' + node.text);
             scope.my_id_to_json_node[node.my_id].state.checked = false;
             if (node.nodes === null || node.nodes === undefined || node.nodes.length === 0) {
                 if (scope.myId2isLeaf[node.my_id]) {
@@ -2412,7 +2562,7 @@ PartAnnotator.prototype.visualize_instance_tree = function() {
                 }
             }
         },
-        onNodeSelected: function(event, node) {
+        onNodeSelected: function (event, node) {
             scope.part_hier_instance_selected_node = node;
 
             // expand the entire path
@@ -2431,12 +2581,12 @@ PartAnnotator.prototype.visualize_instance_tree = function() {
             // highlight the sub-tree
             scope.highlight_annotated_subtree(node);
 
-            console.log('&&&&&&&&&&&&&&  [Node Select] instance '+ node.my_id+ ' temp id: ' + node.name + ' ' + node.text);
+            console.log('&&&&&&&&&&&&&&  [Node Select] instance ' + node.my_id + ' temp id: ' + node.name + ' ' + node.text);
             console.log('&&&&&&&&&&&&&&  [Node Select] question_stack: ', scope.question_stack);
             console.log('&&&&&&&&&&&&&&  [Node Select] current questions: ', scope.my_id_to_question);
             console.log('&&&&&&&&&&&&&&  [Node Select] current answers: ', scope.my_id_to_answer);
         },
-        onNodeUnselected: function(even, node) {
+        onNodeUnselected: function (even, node) {
             scope.part_hier_instance_selected_node = null;
 
             scope.part_select_init();
@@ -2448,7 +2598,7 @@ PartAnnotator.prototype.visualize_instance_tree = function() {
             // de-highlight the sub-tree
             scope.de_highlight_annotated_subtree(node);
 
-            console.log('**************  [Node Unselect] instance '+ node.my_id+ ' temp id: ' + node.name + ' ' + node.text);
+            console.log('**************  [Node Unselect] instance ' + node.my_id + ' temp id: ' + node.name + ' ' + node.text);
             console.log('**************  [Node Unselect] question_stack: ', scope.question_stack);
             console.log('**************  [Node Unselect] current questions: ', scope.my_id_to_question);
             console.log('**************  [Node Unselect] current answers: ', scope.my_id_to_answer);
@@ -2458,7 +2608,7 @@ PartAnnotator.prototype.visualize_instance_tree = function() {
     // get myId2nodeId
     scope.myId2nodeId = [];
     scope.myId2isLeaf = [];
-    console.log('gen: '+scope.current_instance_node_my_id);
+    console.log('gen: ' + scope.current_instance_node_my_id);
     for (var i = 0; i < scope.current_instance_node_my_id; ++i) {
         var node = $('#tree_instance').treeview('getNode', i);
         if (node.nodeId !== undefined) {
@@ -2478,10 +2628,10 @@ PartAnnotator.prototype.visualize_instance_tree = function() {
 };
 
 // Add a part
-PartAnnotator.prototype.part_hier_add_a_part = function(current_template_node, parent_ins_node_my_id) {
+PartAnnotator.prototype.part_hier_add_a_part = function (current_template_node, parent_ins_node_my_id) {
 
-    console.log('[Part Hier Add A Part]: template '+current_template_node.name+' ('+current_template_node.label+') ' +
-        'my_id: '+scope.current_instance_node_my_id);
+    console.log('[Part Hier Add A Part]: template ' + current_template_node.name + ' (' + current_template_node.label + ') ' +
+        'my_id: ' + scope.current_instance_node_my_id);
 
     var new_node = {
         my_id: scope.current_instance_node_my_id,
@@ -2494,7 +2644,7 @@ PartAnnotator.prototype.part_hier_add_a_part = function(current_template_node, p
     };
 
     if (current_template_node.name === 'other') {
-        new_node.text = current_template_node.label + ' ('+scope.other_str+')';
+        new_node.text = current_template_node.label + ' (' + scope.other_str + ')';
     } else {
         new_node.text = current_template_node.label;
     }
@@ -2514,33 +2664,33 @@ PartAnnotator.prototype.part_hier_add_a_part = function(current_template_node, p
 
     scope.prepare_new_question_by_id(scope.current_instance_node_my_id);
 
-    ++ scope.current_instance_node_my_id;
+    ++scope.current_instance_node_my_id;
 
     // render the instance tree
     scope.visualize_instance_tree();
 
-    return scope.current_instance_node_my_id-1;
+    return scope.current_instance_node_my_id - 1;
 };
 
 
 // Annotate a leaf part
-PartAnnotator.prototype.part_hier_annotate_part = function(part_my_id) {
+PartAnnotator.prototype.part_hier_annotate_part = function (part_my_id) {
     var cur_json_node = scope.my_id_to_json_node[part_my_id];
 
     if (scope.selected_part_objs.size === 0) {
-        alert('Please select some parts to assign to part '+cur_json_node.text);
+        alert('Please select some parts to assign to part ' + cur_json_node.text);
         return false;
     }
 
-    console.log('[part_hier_annotate_part] '+cur_json_node+' '+part_my_id);
+    console.log('[part_hier_annotate_part] ' + cur_json_node + ' ' + part_my_id);
 
     if ('parts' in cur_json_node) {
-        alert('You have annotated the part '+cur_json_node.text);
+        alert('You have annotated the part ' + cur_json_node.text);
         return false;
     } else {
         var selected_part_ids = [];
         for (let item of scope.selected_part_objs) {
-            selected_part_ids.push(item.part_type+'-'+item.part_id);
+            selected_part_ids.push(item.part_type + '-' + item.part_id);
         }
         cur_json_node.parts = Array.from(selected_part_ids);
 
@@ -2550,7 +2700,7 @@ PartAnnotator.prototype.part_hier_annotate_part = function(part_my_id) {
             g = Math.floor(Math.random() * 256);
             b = Math.floor(Math.random() * 256);
 
-            diff = Math.abs(r-g) + Math.abs(r-b) + Math.abs(b-g);
+            diff = Math.abs(r - g) + Math.abs(r - b) + Math.abs(b - g);
 
             if (!(g < 70 && b < 70 && r > 200) && diff > 100) {
                 break;
@@ -2596,7 +2746,7 @@ PartAnnotator.prototype.part_hier_annotate_part = function(part_my_id) {
 
 
 // Delete a part (the entire sub-tree will be deleted)
-PartAnnotator.prototype.part_hier_annotate_delete = function(part_my_id) {
+PartAnnotator.prototype.part_hier_annotate_delete = function (part_my_id) {
 
     var current_question = scope.my_id_to_question[part_my_id];
     var current_answer = scope.my_id_to_answer[part_my_id];
@@ -2637,7 +2787,7 @@ PartAnnotator.prototype.part_hier_annotate_delete = function(part_my_id) {
             delete scope.my_id_to_json_node[part_my_id].parts;
             delete scope.myId2partObjs[part_my_id];
         } else {
-            alert('System error. [part_hier_annotate_delete] unknown question type: '+current_question.q_type);
+            alert('System error. [part_hier_annotate_delete] unknown question type: ' + current_question.q_type);
             return false;
         }
     }
@@ -2646,8 +2796,8 @@ PartAnnotator.prototype.part_hier_annotate_delete = function(part_my_id) {
 };
 
 // Highlight the selected sub-tree
-PartAnnotator.prototype.highlight_annotated_subtree = function(node) {
-    console.log('highlight '+node.my_id+' '+node.text+' '+scope.myId2isLeaf[node.my_id]+' '+scope.myId2partObjs[node.my_id]);
+PartAnnotator.prototype.highlight_annotated_subtree = function (node) {
+    console.log('highlight ' + node.my_id + ' ' + node.text + ' ' + scope.myId2isLeaf[node.my_id] + ' ' + scope.myId2partObjs[node.my_id]);
     if (scope.myId2isLeaf[node.my_id]) {
         if (node.my_id in scope.myId2partObjs) {
             for (let obj of scope.myId2partObjs[node.my_id]) {
@@ -2667,7 +2817,7 @@ PartAnnotator.prototype.highlight_annotated_subtree = function(node) {
 };
 
 // De-Highlight the selected sub-tree
-PartAnnotator.prototype.de_highlight_annotated_subtree = function(node) {
+PartAnnotator.prototype.de_highlight_annotated_subtree = function (node) {
     if (scope.myId2isLeaf[node.my_id]) {
         if (node.my_id in scope.myId2partObjs) {
             for (let obj of scope.myId2partObjs[node.my_id]) {
@@ -2687,19 +2837,19 @@ PartAnnotator.prototype.de_highlight_annotated_subtree = function(node) {
 };
 
 // Unselect all parts
-PartAnnotator.prototype.part_hier_unselect_all = function() {
+PartAnnotator.prototype.part_hier_unselect_all = function () {
     if (scope.part_hier_instance_selected_node !== undefined && scope.part_hier_instance_selected_node !== null) {
-        console.log('unselect: '+scope.part_hier_instance_selected_node.text);
+        console.log('unselect: ' + scope.part_hier_instance_selected_node.text);
         scope.de_highlight_annotated_subtree(scope.part_hier_instance_selected_node);
         $('#tree_instance').treeview('unselectNode', scope.part_hier_instance_selected_node.nodeId);
     }
 }
 
 // Save the current result to server
-PartAnnotator.prototype.part_hier_save = function() {
-    var url = be_config.remoteHost+':'+be_config.remotePort+be_config.update_anno_version;
+PartAnnotator.prototype.part_hier_save = function () {
+    var url = be_config.remoteHost + ':' + be_config.remotePort + be_config.update_anno_version;
     console.log('[part_hier_save] Update version Id: ' + url);
-    var update_json = {anno_id: scope.anno_id, anno_version: scope.anno_version};
+    var update_json = { anno_id: scope.anno_id, anno_version: scope.anno_version };
 
     document.getElementById("prompt").innerHTML = "Saving results to server! Please Wait!";
 
@@ -2712,7 +2862,7 @@ PartAnnotator.prototype.part_hier_save = function() {
             },
             multipart: {
                 chunked: false,
-                data:[
+                data: [
                     {
                         'Content-Disposition': 'form-data; name="data"',
                         'Content-Type': 'application/json',
@@ -2726,10 +2876,10 @@ PartAnnotator.prototype.part_hier_save = function() {
             console.log(error);
             if (response.statusCode === 200) {
                 console.log('successfully update anno version: ++version');
-                ++ scope.anno_version;
+                ++scope.anno_version;
 
                 // save json
-                var save_json_url = be_config.remoteHost+':'+be_config.remotePort+be_config.save_anno_json;
+                var save_json_url = be_config.remoteHost + ':' + be_config.remotePort + be_config.save_anno_json;
                 console.log('[part_hier_save] Save json: ' + save_json_url);
 
                 var out_json = {};
@@ -2749,7 +2899,7 @@ PartAnnotator.prototype.part_hier_save = function() {
                         },
                         multipart: {
                             chunked: false,
-                            data:[
+                            data: [
                                 {
                                     'Content-Disposition': 'form-data; name="data"',
                                     'Content-Type': 'application/json',
@@ -2764,7 +2914,7 @@ PartAnnotator.prototype.part_hier_save = function() {
                             console.log('successfully save the new json');
 
                             // save snapshot
-                            var save_img_url = be_config.remoteHost+':'+be_config.remotePort+be_config.save_anno_snapshot;
+                            var save_img_url = be_config.remoteHost + ':' + be_config.remotePort + be_config.save_anno_snapshot;
                             console.log('[part_hier_save]: Save Snapshot ' + save_img_url);
 
                             var img_json = {};
@@ -2783,7 +2933,7 @@ PartAnnotator.prototype.part_hier_save = function() {
                                     },
                                     multipart: {
                                         chunked: false,
-                                        data:[
+                                        data: [
                                             {
                                                 'Content-Disposition': 'form-data; name="data"',
                                                 'Content-Type': 'application/json',
@@ -2798,7 +2948,7 @@ PartAnnotator.prototype.part_hier_save = function() {
                                         console.log('successfully save the new snapshot');
 
                                         // save obj_list
-                                        var save_data_url = be_config.remoteHost+':'+be_config.remotePort+be_config.save_anno_obj_list;
+                                        var save_data_url = be_config.remoteHost + ':' + be_config.remotePort + be_config.save_anno_obj_list;
                                         console.log('[part_hier_save]: Save anno obj list ' + save_data_url);
 
                                         var data_json = {};
@@ -2818,7 +2968,7 @@ PartAnnotator.prototype.part_hier_save = function() {
                                                 },
                                                 multipart: {
                                                     chunked: false,
-                                                    data:[
+                                                    data: [
                                                         {
                                                             'Content-Disposition': 'form-data; name="data"',
                                                             'Content-Type': 'application/json',
@@ -2833,7 +2983,7 @@ PartAnnotator.prototype.part_hier_save = function() {
                                                     console.log('successfully save the obj file list');
 
                                                     // save qa data
-                                                    var save_data_url = be_config.remoteHost+':'+be_config.remotePort+be_config.save_qa_data;
+                                                    var save_data_url = be_config.remoteHost + ':' + be_config.remotePort + be_config.save_qa_data;
                                                     console.log('[part_hier_save]: Save anno qa data ' + save_data_url);
 
                                                     var data_json = {};
@@ -2853,7 +3003,7 @@ PartAnnotator.prototype.part_hier_save = function() {
                                                             },
                                                             multipart: {
                                                                 chunked: false,
-                                                                data:[
+                                                                data: [
                                                                     {
                                                                         'Content-Disposition': 'form-data; name="data"',
                                                                         'Content-Type': 'application/json',
@@ -2885,45 +3035,11 @@ PartAnnotator.prototype.part_hier_save = function() {
     );
 };
 
-var Pencil = (function () {
-    function Pencil() {
-        this._canvasContext = null;
-    }
-    Object.defineProperty(Pencil.prototype, "radius", {
-        get: function () {
-            return 1;
-        },
-        enumerable: true,
-        configurable: true
-    });
-    Pencil.prototype.startStroke = function (canvas, position) {
-        this._canvasContext = canvas.getContext('2d');
-        this._canvasContext.beginPath();
-        this._canvasContext.save(); // Assumption: nobody else will call this until the stroke is finished
-        this._canvasContext.lineWidth = this.radius * 2;
-        this._canvasContext.moveTo(position.x, position.y);
-    };
-    Pencil.prototype.continueStoke = function (position) {
-        if (this._canvasContext) {
-            this._canvasContext.lineTo(position.x, position.y);
-            this._canvasContext.stroke();
-        }
-    };
-    Pencil.prototype.finishStroke = function () {
-        if (this._canvasContext) {
-            this._canvasContext.restore();
-            this._canvasContext = null;
-        }
-    };
-    return Pencil;
-})();
-PartAnnotator.Pencil = Pencil;
-
-PartAnnotator.prototype.save_first_snapshot = function() {
+PartAnnotator.prototype.save_first_snapshot = function () {
     // save snapshot
     document.getElementById("prompt").innerHTML = 'Saving the current snapshot!';
 
-    var save_img_url = be_config.remoteHost+':'+be_config.remotePort+be_config.save_anno_snapshot;
+    var save_img_url = be_config.remoteHost + ':' + be_config.remotePort + be_config.save_anno_snapshot;
     console.log('[part_hier_save]: Save Snapshot ' + save_img_url);
 
     var img_json = {};
@@ -2942,7 +3058,7 @@ PartAnnotator.prototype.save_first_snapshot = function() {
             },
             multipart: {
                 chunked: false,
-                data:[
+                data: [
                     {
                         'Content-Disposition': 'form-data; name="data"',
                         'Content-Type': 'application/json',
@@ -2973,7 +3089,7 @@ PartAnnotator.prototype.save_first_snapshot = function() {
 // -----------------------------------------------------------
 
 
-PartAnnotator.prototype.qa_setup = function() {
+PartAnnotator.prototype.qa_setup = function () {
     this.question_stack = [];
     this.my_id_to_question = {};
     this.my_id_to_answer = {};
@@ -2983,12 +3099,12 @@ PartAnnotator.prototype.qa_setup = function() {
     this.activated_part_definition_div = null;
 };
 
-PartAnnotator.prototype.load_example_img_filelist = function() {
-    var url = '/part_hier_templates/'+scope.model_cat+'/'+scope.all_example_img_filelist;
-    console.log('[load_example_img_filelist]: loading from '+url);
+PartAnnotator.prototype.load_example_img_filelist = function () {
+    var url = '/part_hier_templates/' + scope.model_cat + '/' + scope.all_example_img_filelist;
+    console.log('[load_example_img_filelist]: loading from ' + url);
     var xmlhttp = new XMLHttpRequest();
     scope = this;
-    xmlhttp.onreadystatechange = function() {
+    xmlhttp.onreadystatechange = function () {
         if (this.readyState === 4 && this.status === 200) {
             var data = JSON.parse(this.responseText);
             scope.example_img_filelist = {};
@@ -3004,7 +3120,7 @@ PartAnnotator.prototype.load_example_img_filelist = function() {
     xmlhttp.send();
 };
 
-PartAnnotator.prototype.export_qa_data = function() {
+PartAnnotator.prototype.export_qa_data = function () {
     var res = {
         question_stack: scope.question_stack,
         my_id_to_question: scope.my_id_to_question,
@@ -3014,14 +3130,14 @@ PartAnnotator.prototype.export_qa_data = function() {
     return res;
 };
 
-PartAnnotator.prototype.load_qa_json = function() {
+PartAnnotator.prototype.load_qa_json = function () {
     // load the current version
-    var json_url = be_config.remoteHost+':'+be_config.remotePort+be_config.get_qa_data+'/'+scope.anno_id+'-'+scope.anno_version;
+    var json_url = be_config.remoteHost + ':' + be_config.remotePort + be_config.get_qa_data + '/' + scope.anno_id + '-' + scope.anno_version;
 
     document.getElementById("prompt").innerHTML = "Loading q&a data! Please wait!";
 
-    $.getJSON( json_url, function( data ) {
-        console.log('Load parent anno:'+data);
+    $.getJSON(json_url, function (data) {
+        console.log('Load parent anno:' + data);
         scope.import_qa_data(data);
         document.getElementById("prompt").innerHTML = "";
 
@@ -3029,7 +3145,7 @@ PartAnnotator.prototype.load_qa_json = function() {
     });
 };
 
-PartAnnotator.prototype.import_qa_data = function(data) {
+PartAnnotator.prototype.import_qa_data = function (data) {
     scope.question_stack = data.question_stack;
     scope.my_id_to_question = data.my_id_to_question;
     scope.my_id_to_answer = data.my_id_to_answer;
@@ -3044,7 +3160,7 @@ PartAnnotator.prototype.import_qa_data = function(data) {
     }
 };
 
-PartAnnotator.prototype.render_or_question = function() {
+PartAnnotator.prototype.render_or_question = function () {
     var current_question = scope.my_id_to_question[scope.current_question_id];
     console.log('[render_or_question] question: ', current_question);
 
@@ -3053,9 +3169,9 @@ PartAnnotator.prototype.render_or_question = function() {
     var cur_my_id = current_question.id;
 
     output = '<div class="slide">' +
-                '<div class="question" onmouseover="show_definition(null)"> What is the subtype for this <b>' +
-                        part_text + '</b> Part</div>' +
-                '<div class="answers">';
+        '<div class="question" onmouseover="show_definition(null)"> What is the subtype for this <b>' +
+        part_text + '</b> Part</div>' +
+        '<div class="answers">';
 
     var selected_subtype = undefined;
     var selected_other = undefined;
@@ -3091,12 +3207,12 @@ PartAnnotator.prototype.render_or_question = function() {
         }
 
         if (selected_subtype === subtype) {
-            output += '<div><label onmouseover="show_definition(\''+subtype+'\')">' +
-                '<input type="radio" tabindex="-1" name="radio_answer" id="'+subtype+'" checked '+disabled+'>' +
+            output += '<div><label onmouseover="show_definition(\'' + subtype + '\')">' +
+                '<input type="radio" tabindex="-1" name="radio_answer" id="' + subtype + '" checked ' + disabled + '>' +
                 subtype_text + '</label></div>';
         } else {
-            output += '<div><label onmouseover="show_definition(\''+subtype+'\')">' +
-                '<input type="radio" tabindex="-1" name="radio_answer" id="'+subtype+'" '+disabled+'>' +
+            output += '<div><label onmouseover="show_definition(\'' + subtype + '\')">' +
+                '<input type="radio" tabindex="-1" name="radio_answer" id="' + subtype + '" ' + disabled + '>' +
                 subtype_text + '</label></div>';
         }
 
@@ -3104,13 +3220,13 @@ PartAnnotator.prototype.render_or_question = function() {
     }
 
     if (selected_other !== undefined) {
-        output += '<div><label><input type="radio" name="radio_answer" id="other" checked '+disabled+'>' +
-            scope.other_str+' </label></div>' +
-            '<input type="text" tabindex="-1" name="other_text" id="other_text" value="'+selected_other+'" '+disabled+'>';
+        output += '<div><label><input type="radio" name="radio_answer" id="other" checked ' + disabled + '>' +
+            scope.other_str + ' </label></div>' +
+            '<input type="text" tabindex="-1" name="other_text" id="other_text" value="' + selected_other + '" ' + disabled + '>';
     } else {
-        output += '<div><label><input type="radio" name="radio_answer" id="other" '+disabled+'>' +
-            scope.other_str+' </label></div>' +
-            '<input type="text" tabindex="-1" name="other_text" id="other_text" '+disabled+'>';
+        output += '<div><label><input type="radio" name="radio_answer" id="other" ' + disabled + '>' +
+            scope.other_str + ' </label></div>' +
+            '<input type="text" tabindex="-1" name="other_text" id="other_text" ' + disabled + '>';
     }
 
     scope.gen_part_definiton('other', scope.current_question_id, false);
@@ -3118,17 +3234,17 @@ PartAnnotator.prototype.render_or_question = function() {
     output += '</div></div>';
 
     output += '<div><b>Your Confidence for the Answer:</b> ' +
-        '<input id="rating-input" value="'+cur_star_rating+'", type="text" ' +
-        'onchange="star_rating_onchange('+scope.current_question_id+')"></div>';
+        '<input id="rating-input" value="' + cur_star_rating + '", type="text" ' +
+        'onchange="star_rating_onchange(' + scope.current_question_id + ')"></div>';
 
     output += '<div><b>The reason for low confidence:</b><textarea ' +
         'name="low_conf_reason" id="low_conf_reason" ' +
-        'onchange="low_conf_reason_onchange('+scope.current_question_id+')">'+low_conf_reason+'</textarea></div>';
+        'onchange="low_conf_reason_onchange(' + scope.current_question_id + ')">' + low_conf_reason + '</textarea></div>';
 
     $('#annotation_quiz').html(output);
 };
 
-PartAnnotator.prototype.process_or_answer = function() {
+PartAnnotator.prototype.process_or_answer = function () {
     var current_question = scope.my_id_to_question[scope.current_question_id];
 
     var subtypes = current_question.children;
@@ -3177,7 +3293,7 @@ PartAnnotator.prototype.process_or_answer = function() {
                 children: [child_my_id]
             };
         } else {
-            alert('You are choosing subtype '+subtype+'. Please do not specify a part for other!');
+            alert('You are choosing subtype ' + subtype + '. Please do not specify a part for other!');
             return false;
         }
     }
@@ -3185,7 +3301,7 @@ PartAnnotator.prototype.process_or_answer = function() {
     return true;
 };
 
-PartAnnotator.prototype.render_number_control_html = function(subpart, subpart_text, num_part, disabled) {
+PartAnnotator.prototype.render_number_control_html = function (subpart, subpart_text, num_part, disabled) {
     output = `
         <div class="numbers-row">
             <button type="button" class="btn btn-default" onclick="number_button_dec('${subpart}');" ${disabled}>-</button>
@@ -3197,7 +3313,7 @@ PartAnnotator.prototype.render_number_control_html = function(subpart, subpart_t
     return output;
 };
 
-PartAnnotator.prototype.render_and_question = function() {
+PartAnnotator.prototype.render_and_question = function () {
     var current_question = scope.my_id_to_question[scope.current_question_id];
     console.log('[render_and_question] question: ', current_question);
 
@@ -3268,32 +3384,32 @@ PartAnnotator.prototype.render_and_question = function() {
     var num_part = 0; var other_part_list = '';
     if ('other' in selected_subpart) {
         num_part = selected_subpart['other'];
-        for (var i = 0; i< num_part; ++i) {
-            var cur_name = 'other_part_'+i;
-            other_part_list += '<div><input list="wordnet_words" type="text" name="'+cur_name+'" id="'+cur_name+'" ' +
-                'value="'+selected_other[i]+'" '+disabled+'></div>';
+        for (var i = 0; i < num_part; ++i) {
+            var cur_name = 'other_part_' + i;
+            other_part_list += '<div><input list="wordnet_words" type="text" name="' + cur_name + '" id="' + cur_name + '" ' +
+                'value="' + selected_other[i] + '" ' + disabled + '></div>';
         }
     }
 
     output += scope.render_number_control_html('other', scope.other_str, num_part, disabled);
-    output +=  '<div id="other_part_list">' + other_part_list + '</div>'
+    output += '<div id="other_part_list">' + other_part_list + '</div>'
 
     scope.gen_part_definiton('other', scope.current_question_id, false);
 
     output += '</div></div>';
 
     output += '<div><b>Your Confidence for the question:</b> ' +
-        '<input id="rating-input" value="'+cur_star_rating+'", type="text" ' +
-        'onchange="star_rating_onchange('+scope.current_question_id+')"></div>';
+        '<input id="rating-input" value="' + cur_star_rating + '", type="text" ' +
+        'onchange="star_rating_onchange(' + scope.current_question_id + ')"></div>';
 
     output += '<div><b>The reason for low confidence:</b><textarea ' +
         'name="low_conf_reason" id="low_conf_reason" ' +
-        'onchange="low_conf_reason_onchange('+scope.current_question_id+')">'+low_conf_reason+'</textarea></div>';
+        'onchange="low_conf_reason_onchange(' + scope.current_question_id + ')">' + low_conf_reason + '</textarea></div>';
 
     $('#annotation_quiz').html(output);
 };
 
-PartAnnotator.prototype.process_and_answer = function() {
+PartAnnotator.prototype.process_and_answer = function () {
     var current_question = scope.my_id_to_question[scope.current_question_id];
 
     var subparts = current_question.children;
@@ -3304,10 +3420,10 @@ PartAnnotator.prototype.process_and_answer = function() {
         var value = document.getElementsByName(subpart)[0].value;
         var value_int = parseInt(value);
         if (isNaN(value_int)) {
-            alert('Value '+value+' is not integer!');
+            alert('Value ' + value + ' is not integer!');
             return false;
         } else if (value_int < 0) {
-            alert('Value '+value_int+' < 0!');
+            alert('Value ' + value_int + ' < 0!');
             return false;
         } else {
             result[subpart] = value_int;
@@ -3320,20 +3436,20 @@ PartAnnotator.prototype.process_and_answer = function() {
     var value = document.getElementsByName('other')[0].value;
     var value_int = parseInt(value);
     if (isNaN(value_int)) {
-        alert('Value '+value+' is not integer!');
+        alert('Value ' + value + ' is not integer!');
         return false;
     } else if (value_int < 0) {
-        alert('Value '+value_int+' < 0!');
+        alert('Value ' + value_int + ' < 0!');
         return false;
     } else {
         result['other'] = value_int;
         tot_part += value_int;
         for (var i = 0; i < value_int; ++i) {
-            if (document.getElementById('other_part_'+i).value === '') {
+            if (document.getElementById('other_part_' + i).value === '') {
                 alert('You need to enter the name for the part other!');
                 return false;
             }
-            result_other.push(document.getElementById('other_part_'+i).value);
+            result_other.push(document.getElementById('other_part_' + i).value);
         }
     }
 
@@ -3368,7 +3484,7 @@ PartAnnotator.prototype.process_and_answer = function() {
             }
         }
 
-        for (var i = 0; i< result['other']; ++i) {
+        for (var i = 0; i < result['other']; ++i) {
             var other_node = {
                 name: 'other',
                 label: result_other[i]
@@ -3386,7 +3502,7 @@ PartAnnotator.prototype.process_and_answer = function() {
 // edit and answer rules of principle
 // if add more parts, no problem, just add more parts and add to question stack
 // if delete parts, delete the unannotated ones
-PartAnnotator.prototype.edit_and_answer = function() {
+PartAnnotator.prototype.edit_and_answer = function () {
     console.log('[edit_and_answer] question_id: ', scope.current_question_id);
     console.log('[**** BEFORE updated answer] ', JSON.stringify(scope.my_id_to_answer[scope.current_question_id]));
 
@@ -3400,10 +3516,10 @@ PartAnnotator.prototype.edit_and_answer = function() {
         var value = document.getElementsByName(subpart)[0].value;
         var value_int = parseInt(value);
         if (isNaN(value_int)) {
-            alert('Value '+value+' is not integer!');
+            alert('Value ' + value + ' is not integer!');
             return false;
         } else if (value_int < 0) {
-            alert('Value '+value_int+' < 0!');
+            alert('Value ' + value_int + ' < 0!');
             return false;
         } else {
             result[subpart] = value_int;
@@ -3416,20 +3532,20 @@ PartAnnotator.prototype.edit_and_answer = function() {
     var value = document.getElementsByName('other')[0].value;
     var value_int = parseInt(value);
     if (isNaN(value_int)) {
-        alert('Value '+value+' is not integer!');
+        alert('Value ' + value + ' is not integer!');
         return false;
     } else if (value_int < 0) {
-        alert('Value '+value_int+' < 0!');
+        alert('Value ' + value_int + ' < 0!');
         return false;
     } else {
         result['other'] = value_int;
         tot_part += value_int;
         for (var i = 0; i < value_int; ++i) {
-            if (document.getElementById('other_part_'+i).value === '') {
+            if (document.getElementById('other_part_' + i).value === '') {
                 alert('You need to enter the name for the part other!');
                 return false;
             }
-            result_other.push(document.getElementById('other_part_'+i).value);
+            result_other.push(document.getElementById('other_part_' + i).value);
         }
     }
 
@@ -3453,7 +3569,7 @@ PartAnnotator.prototype.edit_and_answer = function() {
                 if (answered_question_num[subpart_name] === undefined) {
                     answered_question_num[subpart_name] = 0;
                 }
-                ++ answered_question_num[subpart_name];
+                ++answered_question_num[subpart_name];
                 name_to_text[subpart_name] = scope.my_id_to_question[child_my_id].part_text;
             }
         }
@@ -3465,18 +3581,18 @@ PartAnnotator.prototype.edit_and_answer = function() {
             }
         }
         for (let part_name of result_other) {
-            var other_part_name = part_name+' ('+scope.other_str+')';
+            var other_part_name = part_name + ' (' + scope.other_str + ')';
             if (new_answer_question_num[other_part_name] === undefined) {
                 new_answer_question_num[other_part_name] = 0;
             }
-            ++ new_answer_question_num[other_part_name];
+            ++new_answer_question_num[other_part_name];
         }
 
         // check if valid
         var valid = true;
         for (let part_name of Object.keys(answered_question_num)) {
             if (answered_question_num[part_name] > 0 && (new_answer_question_num[part_name] === undefined ||
-                    new_answer_question_num[part_name] < answered_question_num[part_name])) {
+                new_answer_question_num[part_name] < answered_question_num[part_name])) {
                 var new_count = 0;
                 if (new_answer_question_num[part_name] !== undefined) {
                     new_count = new_answer_question_num[part_name];
@@ -3509,7 +3625,7 @@ PartAnnotator.prototype.edit_and_answer = function() {
             }
             for (var i = 0; i < more_count_tot; ++i) {
                 var child_my_id;
-                if (part_name.endsWith(' ('+scope.other_str+')')) {
+                if (part_name.endsWith(' (' + scope.other_str + ')')) {
                     var other_node = {
                         name: 'other',
                         label: part_name.split(' ')[0]
@@ -3564,7 +3680,7 @@ PartAnnotator.prototype.edit_and_answer = function() {
 };
 
 
-PartAnnotator.prototype.render_leaf_question = function() {
+PartAnnotator.prototype.render_leaf_question = function () {
     var current_question = scope.my_id_to_question[scope.current_question_id];
     console.log('[render_leaf_question] question: ', current_question);
 
@@ -3594,17 +3710,17 @@ PartAnnotator.prototype.render_leaf_question = function() {
     $('#edit_answer').prop('disabled', true);
 
     output += '<div><b>Your Confidence for the Answer:</b> ' +
-        '<input id="rating-input" value="'+cur_star_rating+'", type="text" ' +
-        'onchange="star_rating_onchange('+scope.current_question_id+')"></div>';
+        '<input id="rating-input" value="' + cur_star_rating + '", type="text" ' +
+        'onchange="star_rating_onchange(' + scope.current_question_id + ')"></div>';
 
     output += '<div><b>The reason for low confidence:</b><textarea ' +
         'name="low_conf_reason" id="low_conf_reason"  ' +
-        'onchange="low_conf_reason_onchange('+scope.current_question_id+')">'+low_conf_reason+'</textarea></div>';
-    
+        'onchange="low_conf_reason_onchange(' + scope.current_question_id + ')">' + low_conf_reason + '</textarea></div>';
+
     $('#annotation_quiz').html(output);
 };
 
-PartAnnotator.prototype.process_leaf_answer = function() {
+PartAnnotator.prototype.process_leaf_answer = function () {
     var success = scope.part_hier_annotate_part(scope.current_question_id);
 
     if (success) {
@@ -3621,11 +3737,11 @@ PartAnnotator.prototype.process_leaf_answer = function() {
 };
 
 
-PartAnnotator.prototype.render_idle_question = function() {
+PartAnnotator.prototype.render_idle_question = function () {
     $('#annotation_quiz').html('<div class="slide"><div class="question">' +
         'Please select a question from the left part hierarchy to answer! ' +
         'Or press "Next Question" button for a new question suggested by the system.</div></div>');
-    
+
     $('#clear_answer').prop('disabled', true);
     $('#edit_answer').prop('disabled', true);
     $('#next_question').prop('disabled', false);
@@ -3637,7 +3753,7 @@ PartAnnotator.prototype.render_idle_question = function() {
     $('#part_definition').empty();
 };
 
-PartAnnotator.prototype.render_end_slide = function() {
+PartAnnotator.prototype.render_end_slide = function () {
     $('#annotation_quiz').html('<div class="slide"><div class="question">Congratulations! ' +
         'You have finished the annotation for this shape! ' +
         'Please double check the results! If it is as expected, ' +
@@ -3654,7 +3770,7 @@ PartAnnotator.prototype.render_end_slide = function() {
     $('#part_definition').empty();
 };
 
-PartAnnotator.prototype.prepare_new_question_by_id = function(cur_q_id) {
+PartAnnotator.prototype.prepare_new_question_by_id = function (cur_q_id) {
     var cur_node = scope.my_id_to_json_node[cur_q_id];
     var part_name = cur_node.name;
 
@@ -3702,7 +3818,7 @@ PartAnnotator.prototype.prepare_new_question_by_id = function(cur_q_id) {
     scope.my_id_to_question[cur_q_id] = current_question;
 };
 
-PartAnnotator.prototype.render_new_question = function() {
+PartAnnotator.prototype.render_new_question = function () {
     console.log('[render_new_question] stack: ', scope.question_stack);
     if (scope.question_stack.length > 0) {
         var cur_q_id = scope.question_stack.pop();
@@ -3714,7 +3830,7 @@ PartAnnotator.prototype.render_new_question = function() {
     }
 };
 
-PartAnnotator.prototype.render_question = function() {
+PartAnnotator.prototype.render_question = function () {
     var current_question = scope.my_id_to_question[scope.current_question_id];
     console.log('[render_question] question', scope.current_question_id, JSON.stringify(scope.my_id_to_question));
     var q_type = current_question.q_type;
@@ -3734,10 +3850,10 @@ PartAnnotator.prototype.render_question = function() {
     } else if (q_type === 'leaf') {
         scope.render_leaf_question();
     } else {
-        alert('System error. [render_question] Unknown question type: '+q_type);
+        alert('System error. [render_question] Unknown question type: ' + q_type);
     }
 
-    var star_caps = {0: 'I can\'t label!', 1: 'Very Unsure', 2: 'Unsure', 3: 'It\'s OK!', 4: 'Confident', 5: "Very Confident"};
+    var star_caps = { 0: 'I can\'t label!', 1: 'Very Unsure', 2: 'Unsure', 3: 'It\'s OK!', 4: 'Confident', 5: "Very Confident" };
 
     // set up for the star rating
     $('#rating-input').rating({
@@ -3752,9 +3868,9 @@ PartAnnotator.prototype.render_question = function() {
     $('#next_question').prop('disabled', false);
 };
 
-PartAnnotator.prototype.next_question = function() {
-    if (scope.current_question_id >=0 && (scope.my_id_to_answer[scope.current_question_id] === undefined ||
-            scope.my_id_to_answer[scope.current_question_id].is_editting)) {
+PartAnnotator.prototype.next_question = function () {
+    if (scope.current_question_id >= 0 && (scope.my_id_to_answer[scope.current_question_id] === undefined ||
+        scope.my_id_to_answer[scope.current_question_id].is_editting)) {
         if (scope.question_submit_answer()) {
             scope.render_new_question();
         }
@@ -3763,7 +3879,7 @@ PartAnnotator.prototype.next_question = function() {
     }
 };
 
-PartAnnotator.prototype.question_submit_answer = function() {
+PartAnnotator.prototype.question_submit_answer = function () {
     console.log('[question_submit_answer] question: ', scope.my_id_to_question[scope.current_question_id]);
     var current_question = scope.my_id_to_question[scope.current_question_id];
 
@@ -3772,17 +3888,17 @@ PartAnnotator.prototype.question_submit_answer = function() {
     if (current_question.q_type === 'or') {
         success = scope.process_or_answer();
     } else if (current_question.q_type === 'and') {
-        console.log('[question_submit_answer AND] '+scope.current_question_id, scope.my_id_to_answer[scope.current_question_id]);
+        console.log('[question_submit_answer AND] ' + scope.current_question_id, scope.my_id_to_answer[scope.current_question_id]);
         if (scope.my_id_to_answer[scope.current_question_id] !== undefined &&
             scope.my_id_to_answer[scope.current_question_id].is_editting) {
-                success = scope.edit_and_answer();
+            success = scope.edit_and_answer();
         } else {
-                success = scope.process_and_answer();
+            success = scope.process_and_answer();
         }
     } else if (current_question.q_type === 'leaf') {
         success = scope.process_leaf_answer();
     } else {
-        alert('System error. [next_question] Unknown question type: '+current_question.q_type);
+        alert('System error. [next_question] Unknown question type: ' + current_question.q_type);
     }
 
     scope.visualize_instance_tree();
@@ -3794,10 +3910,10 @@ PartAnnotator.prototype.question_submit_answer = function() {
     return success;
 };
 
-PartAnnotator.prototype.question_clear_answer = function() {
+PartAnnotator.prototype.question_clear_answer = function () {
     var prompt_str = 'Are you sure you want to clear the answer to this question? ' +
         'All annotation for this question and the related questions in the sub-tree will be deleted!';
-    
+
     if (confirm(prompt_str)) {
         if (scope.part_hier_annotate_delete(scope.current_question_id)) {
             scope.visualize_instance_tree();
@@ -3807,18 +3923,18 @@ PartAnnotator.prototype.question_clear_answer = function() {
     }
 };
 
-PartAnnotator.prototype.question_edit_answer = function() {
+PartAnnotator.prototype.question_edit_answer = function () {
     var current_question = scope.my_id_to_question[scope.current_question_id];
 
     if (current_question.q_type === 'and') {
         scope.my_id_to_answer[scope.current_question_id].is_editting = true;
         scope.render_question();
     } else {
-        alert('System error. [question_edit_answer] Unknown question type: '+current_question.q_type);
+        alert('System error. [question_edit_answer] Unknown question type: ' + current_question.q_type);
     }
 };
 
-PartAnnotator.prototype.select_question_by_id = function() {
+PartAnnotator.prototype.select_question_by_id = function () {
     var index = scope.question_stack.indexOf(scope.current_question_id);
     if (index >= 0) {
         scope.question_stack.splice(index, 1);
@@ -3826,7 +3942,7 @@ PartAnnotator.prototype.select_question_by_id = function() {
     scope.render_question();
 };
 
-PartAnnotator.prototype.unselect_question_by_id = function(cur_my_id) {
+PartAnnotator.prototype.unselect_question_by_id = function (cur_my_id) {
     if (scope.my_id_to_answer[cur_my_id] === undefined) {
         var index = scope.question_stack.indexOf(cur_my_id);
         if (index < 0) {
@@ -3842,18 +3958,18 @@ PartAnnotator.prototype.unselect_question_by_id = function(cur_my_id) {
     scope.render_idle_question();
 };
 
-PartAnnotator.prototype.locate_question = function() {
+PartAnnotator.prototype.locate_question = function () {
     var node = scope.myId2nodeId[scope.current_question_id];
     console.log('[locate_question] ', scope.current_question_id, node);
     $('#tree_instance').treeview('selectNode', [node]);
 };
 
-PartAnnotator.prototype.gen_part_definiton = function(part_name, parent_my_id, visible) {
+PartAnnotator.prototype.gen_part_definiton = function (part_name, parent_my_id, visible) {
 
     console.log('[gen_part_definiton] part_name: ', part_name, ' parent_my_id: ', parent_my_id);
 
     var visible_mode = 'none';
-    var id_name = 'part_definition_'+part_name;
+    var id_name = 'part_definition_' + part_name;
     if (visible) {
         visible_mode = 'block';
         id_name = 'part_definition_default';
@@ -3862,16 +3978,16 @@ PartAnnotator.prototype.gen_part_definiton = function(part_name, parent_my_id, v
 
     var label_str = 'Label', gloss_str = 'Definition', name_str = 'Part Name';
 
-    var output = '<div id="'+id_name+'" style="display:'+visible_mode+';">';
+    var output = '<div id="' + id_name + '" style="display:' + visible_mode + ';">';
     if (part_name in scope.part_template_part_map) {
-        output += '<h4>'+name_str+': '+part_name+'</h4>';
+        output += '<h4>' + name_str + ': ' + part_name + '</h4>';
 
         var record = scope.part_template_part_map[part_name];
         if ('label' in record) {
-            output += '<h4>'+label_str+': '+record.label+'</h4>';
+            output += '<h4>' + label_str + ': ' + record.label + '</h4>';
         }
         if ('gloss' in record) {
-            output += '<p><b>'+gloss_str+':</b> '+record.gloss+'</p>';
+            output += '<p><b>' + gloss_str + ':</b> ' + record.gloss + '</p>';
         }
 
         // get parent history
@@ -3887,7 +4003,7 @@ PartAnnotator.prototype.gen_part_definiton = function(part_name, parent_my_id, v
             var cur_path = parent_history.slice(0, i).join('/');
             if (Object.keys(scope.example_img_filelist).indexOf(cur_path) >= 0) {
                 for (let item of scope.example_img_filelist[cur_path]) {
-                    var img_url = '/part_hier_templates/'+scope.model_cat+'/'+scope.img_dir+'/'+cur_path+'/'+item;
+                    var img_url = '/part_hier_templates/' + scope.model_cat + '/' + scope.img_dir + '/' + cur_path + '/' + item;
                     output += '<a href="' + img_url + '" target="_blank">' +
                         '<img src="' + img_url + '" width="80%" style="max-width:100%; max-height:100%;"/></a>';
                 }
@@ -3911,18 +4027,18 @@ window.PartAnnotator = PartAnnotator;
 // -----------------------------------------------------------
 
 
-window.number_button_inc = function(subpart) {
+window.number_button_inc = function (subpart) {
     console.log('number_button_inc: ', subpart, document.getElementsByName(subpart));
     var value = document.getElementsByName(subpart)[0].value;
     var value_int = parseInt(value);
-    document.getElementsByName(subpart)[0].value = value_int+1;
+    document.getElementsByName(subpart)[0].value = value_int + 1;
 
     if (subpart === 'other') {
         adjust_other_number(subpart, 1);
     }
 };
 
-window.number_button_dec = function(subpart) {
+window.number_button_dec = function (subpart) {
     console.log('number_button_dec: ', subpart, document.getElementsByName(subpart));
     var value = document.getElementsByName(subpart)[0].value;
     var value_int = parseInt(value);
@@ -3935,18 +4051,18 @@ window.number_button_dec = function(subpart) {
     }
 };
 
-window.adjust_other_number = function(subpart, add) {
+window.adjust_other_number = function (subpart, add) {
     var value = document.getElementsByName(subpart)[0].value;
     if (add > 0) {
-        console.log('add one other', value-1);
-        $('#other_part_list').append('<div><input list="wordnet_words" name="other_part_"'+(value-1)+'" id="other_part_'+(value-1)+'" /></div>');
+        console.log('add one other', value - 1);
+        $('#other_part_list').append('<div><input list="wordnet_words" name="other_part_"' + (value - 1) + '" id="other_part_' + (value - 1) + '" /></div>');
     } else {
         console.log('del one other', value);
-        $('#other_part_'+value).parent().remove();
+        $('#other_part_' + value).parent().remove();
     }
 };
 
-window.show_definition = function(subpart) {
+window.show_definition = function (subpart) {
     console.log('[show_definition]', subpart);
 
     if (scope.activated_part_definition_div !== null && scope.activated_part_definition_div !== undefined) {
@@ -3962,13 +4078,13 @@ window.show_definition = function(subpart) {
     }
 };
 
-window.star_rating_onchange = function(q_id) {
+window.star_rating_onchange = function (q_id) {
     if (scope.my_id_to_question[q_id] !== undefined) {
         scope.my_id_to_question[q_id].star_rating = document.getElementById('rating-input').value;
     }
 };
 
-window.low_conf_reason_onchange = function(q_id) {
+window.low_conf_reason_onchange = function (q_id) {
     if (scope.my_id_to_question[q_id] !== undefined) {
         scope.my_id_to_question[q_id].low_conf_reason = document.getElementById('low_conf_reason').value;
     }
