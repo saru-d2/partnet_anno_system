@@ -9,7 +9,8 @@ var { OrbitControls } = require('./js/OrbitControls.js');
 var request = require('request');
 var FormData = require('form-data');
 var Timer = require('easytimer.js');
-var {DecalGeometry} = require('./js/THREE.DecalGeometry');
+// @ts-ignore
+var DecalGeometry = require('three-decal-geometry')(THREE);
 var CameraControls = require('camera-controls');
 const { SSL_OP_NO_COMPRESSION } = require('constants');
 CameraControls.install({ THREE: THREE });
