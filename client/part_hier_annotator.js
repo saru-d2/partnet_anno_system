@@ -10,7 +10,7 @@ var request = require('request');
 var FormData = require('form-data');
 var Timer = require('easytimer.js');
 // @ts-ignore
-var DecalGeometry = require('three-decal-geometry')(THREE);
+var DecalGeometry = require('./js/THREE.DecalGeometry');
 var CameraControls = require('camera-controls');
 const { SSL_OP_NO_COMPRESSION } = require('constants');
 CameraControls.install({ THREE: THREE });
@@ -48,7 +48,7 @@ var PartAnnotator = function (params) {
     this.decalHelper, this.mouseHelper;
     this.p = new THREE.Vector3(0, 0, 0);
     this.r = new THREE.Vector3(0, 0, 0);
-    this.s = new THREE.Vector3(10, 10, 10);
+    this.s = new THREE.Vector3(0.2, 0.2, 0.2);
     this.up = new THREE.Vector3(0, 1, 0);
     this.check = new THREE.Vector3(1, 1, 1);
     this.mouse = new THREE.Vector2();
@@ -132,11 +132,11 @@ var PartAnnotator = function (params) {
     this.controls.infinityDolly = true;
 
     this.decalMaterial = new THREE.MeshPhongMaterial( { 
-        specular: 0xffffff,
+        specular: 0xff0000,
         shininess: 10,
         map: THREE.ImageUtils.loadTexture( 'splatter.png' ), 
         normalScale: new THREE.Vector2( .15, .15 ),
-        transparent: true, 
+        transparent: false, 
         depthTest: true, 
         depthWrite: false, 
         polygonOffset: true,
@@ -202,11 +202,10 @@ var PartAnnotator = function (params) {
             if (object.isMesh && object != scope.mouseHelper) scene_objs.push(object);
 
         });
-        var s = new THREE.Vector3( 10, 10, 10 );
-        var check = new THREE.Vector3( 1, 1, 1 );
-        console.log(THREE)
-        var m = new THREE.Mesh(new DecalGeometry(scene_objs, 
-        p, r, s, check), scope.decalMaterial);
+        // var s = new THREE.Vector3( 10, 10, 10 );
+        // var check = new THREE.Vector3( 1, 1, 1 );
+        var m = new THREE.Mesh(new DecalGeometry(scene_objs[0], 
+        p, r, scope.s, scope.check), scope.decalMaterial);
         scope.decals.push(m);
         scope.scene.add(m);
     }
