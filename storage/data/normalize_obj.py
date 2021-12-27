@@ -73,7 +73,7 @@ for item in bar(os.listdir(input_dir)):
         # pts,_  = trimesh.sample.sample_surface(msh, label=None, num_points=200)
         # TODO
         # pts,_  = trimesh.sample.sample_surface(msh, count=np.min([100000, v_arr.shape[0]]))
-        pts,_  = trimesh.sample.sample_surface(msh, count=20000)
+        pts,_  = trimesh.sample.sample_surface(msh, count=2000)
 
         center = np.mean(pts, axis=0)
         pts -= center
@@ -83,10 +83,16 @@ for item in bar(os.listdir(input_dir)):
             fout.write('%f %f %f\n' %(center[0], center[1], center[2]))
             fout.write('%f' % scale)
 
-        vv_list = (np.array(vv_list) - center )/ scale
+        # vv_list = (np.array(vv_list) - center )/ scale
+        vv_list = [(i-center)/scale for i in vv_list[0]]
+        vv_list = np.array(vv_list)
         for i in range(len(part_name_list)):
-            out_fn = os.path.join(out_dir, str(part_name_list[i])+'.obj')
-            msh = trimesh.Trimesh((vv_list[i]-center)/scale, ff_list[i])
+            
+            out_fn = os.path.join(out_dir, '1'+'.obj')
+
+            print(vv_list.shape, center.shape, (vv_list[i]-center[None, ...]))
+            # assert()
+            msh = trimesh.Trimesh(vv_list, ff_list[i] )
             msh.export(out_fn, "obj")
             # export_obj(out_fn, (vv_list[i]-center)/scale, ff_list[i])
             # export_obj(out_fn, vv_list[i], ff_list[i])
@@ -94,5 +100,4 @@ for item in bar(os.listdir(input_dir)):
             # print(out_fn)
         # except Exception as e:
         #     print ('ERROR', e)
-
 
