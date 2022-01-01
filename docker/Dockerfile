@@ -101,7 +101,7 @@ RUN npm --prefix=./client install --build-from-source
 RUN python3 -m pip install mysql-connector-python numpy geometry-utils
 RUN npm install nodemon -g
 
-RUN git clone --recursive -j$(nproc) git://github.com/hjwdzh/Manifold \
+RUN git clone --recursive -j$(nproc) https://github.com/hjwdzh/Manifold \
   && cd Manifold && mkdir build \
   && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release\
   && make && cd ../../

@@ -131,18 +131,7 @@ var PartAnnotator = function (params) {
     this.controls = new CameraControls(this.camera, this.renderer.domElement);
     this.controls.infinityDolly = true;
 
-    this.decalMaterial = new THREE.MeshPhongMaterial( { 
-        specular: 0xff0000,
-        shininess: 10,
-        map: THREE.ImageUtils.loadTexture( 'splatter.png' ), 
-        normalScale: new THREE.Vector2( .15, .15 ),
-        transparent: false, 
-        depthTest: true, 
-        depthWrite: false, 
-        polygonOffset: true,
-        polygonOffsetFactor: -4, 
-        wireframe: false 
-    });
+    this.decalMaterial = new THREE.MeshBasicMaterial({ color: 0xFF0000 });
 
     this.decals = []
     // setup controls
@@ -186,6 +175,7 @@ var PartAnnotator = function (params) {
         function(event) {
             if (scope.paint_mode == true) {
                 shoot();
+                mergeDecals();
             }
         });
         
@@ -354,6 +344,7 @@ PartAnnotator.prototype.process_key_press = function (event) {
     var target = event.target || event.srcElement;
     var targetTagName = (target.nodeType == 1) ? target.nodeName.toUpperCase() : "";
     if (!/INPUT|SELECT|TEXTAREA/.test(targetTagName)) {
+        console.log(event.keyCode)
         if (event.keyCode === 87 || event.keyCode === 119) {
 
             // W/w --> toggle wireframe on/off
@@ -369,11 +360,19 @@ PartAnnotator.prototype.process_key_press = function (event) {
             console.log('[press key] P', scope.paint_mode)
 
         }
-        else if (event.keyCode === 80 || event.keyCode === 112) {
+        else if (event.keyCode === 46) {
 
-            // P/p --> toggle paint mode on/off
-            scope.paint_mode = !scope.paint_mode;
-            console.log('scope.paint_mode', scope.paint_mode)
+            // ./> --> brush size up
+            scope.s.multiplyScalar(1.1)
+            console.log('scope.paint_mode', scope.s)
+
+        }
+
+        else if (event.keyCode === 44) {
+
+            // ,/< --> brush size down
+            scope.s.multiplyScalar(0.9)
+            console.log('scope.s', scope.s)
 
         }
         else if (event.keyCode === 82 || event.keyCode === 114) {
