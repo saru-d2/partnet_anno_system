@@ -132,6 +132,7 @@ var PartAnnotator = function (params) {
     this.controls.infinityDolly = true;
 
     this.decalMaterial = new THREE.MeshBasicMaterial({ color: 0xFF0000 });
+    this.curColor = 0xFF0000;
 
     this.decals = []
     // setup controls
@@ -375,6 +376,24 @@ PartAnnotator.prototype.process_key_press = function (event) {
             console.log('scope.s', scope.s)
 
         }
+
+        else if (event.keyCode === 108) {
+
+            // ./> --> brush size up
+            // scope.s.multiplyScalar(1.1)
+            if (scope.curColor == 0xFF0000){
+                scope.decalMaterial = new THREE.MeshBasicMaterial({ color: 0x0000FF });
+                scope.curColor = 0x0000FF
+            }
+            else {
+                scope.decalMaterial = new THREE.MeshBasicMaterial({ color: 0xFF0000 });
+                scope.curColor = 0xFF0000
+                
+            }
+            console.log('scope.paint_mode', scope.s)
+
+        }
+
         else if (event.keyCode === 82 || event.keyCode === 114) {
 
             // R/r --> toggle camera reset
