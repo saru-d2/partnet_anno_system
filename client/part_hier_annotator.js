@@ -317,13 +317,28 @@ var PartAnnotator = function (params) {
             clipping_plane_z.constant = v;
             scope.plane_clipping_z = v;
             scope.render();
+        }, 
+        get 'color'() {
+            return params.color;
+        }, 
+        set 'color'(v) {
+            params.color = v;
         }
+    };
+
+    var params = {
+        color: 0xff00ff
     };
 
     this.renderer.clippingPlanes = globalPlanes;
     this.folderGlobal.add(this.propsGlobal, 'X', -1, 1); this.folderGlobal.__controllers[0].domElement.hidden = false;
     this.folderGlobal.add(this.propsGlobal, 'Y', -1, 1); this.folderGlobal.__controllers[1].domElement.hidden = false;
     this.folderGlobal.add(this.propsGlobal, 'Z', -1, 1); this.folderGlobal.__controllers[2].domElement.hidden = false;
+    this.folderGlobal.addColor(params, 'color').name('Brush Color').onChange(function() {
+        // console.log('hi');
+        console.log(params.color)
+        scope.decalMaterial = new THREE.MeshBasicMaterial({ color: params.color });
+    });
     this.folderGlobal.open();
 
     this.other_str = 'other';
